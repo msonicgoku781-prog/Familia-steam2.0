@@ -8,7 +8,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, AttachmentBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 console.log('🚀 [2] Dependências carregadas.');
 
@@ -1024,6 +1024,9 @@ client.once('clientReady', async () => {
 // ============================================================
 // 14. COMANDOS SLASH
 // ============================================================
+// Variáveis para controle de paginação das conquistas
+const activeAchievementSessions = new Map();
+
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -1220,7 +1223,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (POR JOGO, COM ÍCONES)
+  // 🔥 COMANDO /conquista (COM PAGINAÇÃO E IMAGENS DIRETAS)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1277,74 +1280,164 @@ client.on('interactionCreate', async (interaction) => {
       const playerAch = await getPlayerAchievements(steamId, appid);
       desbloqueadas = playerAch.filter(c => c.achieved === 1).map(c => c.apiname);
     } catch (e) {
-      // Se não conseguir, assume que nenhuma está desbloqueada
       desbloqueadas = [];
     }
 
-    // 6. Filtrar conquistas não desbloqueadas
-    const faltantes = conquistasSchema.filter(ach => !desbloqueadas.includes(ach.name));
+    // 6. Filtrar conquistas não desbloqueadas e adicionar os ícones
+    const faltantes = conquistasSchema
+      .filter(ach => !desbloqueadas.includes(ach.name))
+      .map(ach => ({
+        ...ach,
+        iconUrl: ach.icon ? `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appid}/${ach.icon}.jpg` : null
+      }));
 
     if (faltantes.length === 0) {
       await interaction.editReply(`🎉 Você já desbloqueou **todas** as conquistas de **${jogoInfo.nome}**!`);
       return;
     }
 
-    // 7. Mostrar até 10 conquistas com ícones
-    const maxMostrar = 10;
-    const mostrar = faltantes.slice(0, maxMostrar);
-    const totalFaltantes = faltantes.length;
+    // 7. Paginação: 5 conquistas por página
+    const ITEMS_PER_PAGE = 5;
+    const totalPages = Math.ceil(faltantes.length / ITEMS_PER_PAGE);
+    let currentPage = 0;
 
-    // Enviar uma mensagem com embeds individuais para cada conquista
-    const embeds = [];
-    for (let i = 0; i < mostrar.length; i++) {
-      const ach = mostrar[i];
-      const iconUrl = ach.icon ? `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appid}/${ach.icon}.jpg` : null;
+    // Função para gerar a embed da página atual
+    function generatePageEmbed(page) {
+      const start = page * ITEMS_PER_PAGE;
+      const end = Math.min(start + ITEMS_PER_PAGE, faltantes.length);
+      const pageItems = faltantes.slice(start, end);
+
       const embed = new EmbedBuilder()
         .setColor(0x00AE86)
-        .setTitle(`#${i+1} - ${ach.displayName || ach.name}`)
-        .setDescription(ach.description || 'Sem descrição.')
-        .addFields(
-          { name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: true }
-        )
-        .setFooter({ text: `${totalFaltantes} conquistas faltantes no total` });
-      if (iconUrl) {
-        embed.setThumbnail(iconUrl);
-      }
-      embeds.push(embed);
+        .setTitle(`🏆 Conquistas faltantes de ${jogoInfo.nome}`)
+        .setDescription(`Total: **${faltantes.length}** conquistas faltantes\nPágina ${page + 1}/${totalPages}`)
+        .setFooter({ text: `Clique nos botões abaixo para navegar` })
+        .setTimestamp();
+
+      // Adicionar cada conquista como um campo com a imagem
+      pageItems.forEach((ach, index) => {
+        const num = start + index + 1;
+        const descricao = ach.description || 'Sem descrição';
+        const iconDisplay = ach.iconUrl ? `[🖼️ Ver ícone](${ach.iconUrl})` : 'Sem ícone';
+        embed.addFields({
+          name: `${num}. ${ach.displayName || ach.name}`,
+          value: `${descricao}\n${iconDisplay}`,
+          inline: false
+        });
+      });
+
+      return embed;
     }
 
-    // Enviar a mensagem com os embeds
-    await interaction.editReply({
-      content: `🔍 **Conquistas faltantes de ${jogoInfo.nome}** (${totalFaltantes} no total, mostrando ${Math.min(totalFaltantes, maxMostrar)}):\nDigite o **número** da conquista (1 a ${embeds.length}) para ver a descrição completa.`,
-      embeds: embeds
+    // Criar os botões de navegação
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('prev_achievement')
+          .setLabel('◀️ Anterior')
+          .setStyle(ButtonStyle.Primary)
+          .setDisabled(currentPage === 0),
+        new ButtonBuilder()
+          .setCustomId('next_achievement')
+          .setLabel('Próxima ▶️')
+          .setStyle(ButtonStyle.Primary)
+          .setDisabled(currentPage === totalPages - 1)
+      );
+
+    // Enviar a primeira página
+    const reply = await interaction.editReply({
+      embeds: [generatePageEmbed(currentPage)],
+      components: [row]
     });
 
-    // 8. Coletor para escolher a conquista
-    const filter = m => m.author.id === interaction.user.id && /^\d+$/.test(m.content) && parseInt(m.content) >= 1 && parseInt(m.content) <= embeds.length;
-    const collector = interaction.channel.createMessageCollector({ filter, max: 1, time: 30000 });
-
-    collector.on('collect', async (message) => {
-      const index = parseInt(message.content) - 1;
-      const ach = mostrar[index];
-      // Buscar descrição completa (já temos no ach)
-      const embedCompleto = new EmbedBuilder()
-        .setColor(0x00FF00)
-        .setTitle(`🏆 ${ach.displayName || ach.name}`)
-        .setDescription(ach.description || 'Descrição não disponível.')
-        .addFields(
-          { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
-          { name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: true }
-        )
-        .setFooter({ text: `${totalFaltantes} conquistas faltantes no total` });
-      const iconUrl = ach.icon ? `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appid}/${ach.icon}.jpg` : null;
-      if (iconUrl) embedCompleto.setThumbnail(iconUrl);
-      await interaction.editReply({ content: '✅ Aqui está a conquista escolhida:', embeds: [embedCompleto] });
+    // Armazenar a sessão para navegação
+    const sessionId = `${interaction.user.id}_${interaction.id}`;
+    activeAchievementSessions.set(sessionId, {
+      userId: interaction.user.id,
+      appid: appid,
+      faltantes: faltantes,
+      currentPage: currentPage,
+      totalPages: totalPages,
+      messageId: reply.id,
+      channelId: interaction.channel.id,
+      jogoNome: jogoInfo.nome
     });
 
-    collector.on('end', collected => {
-      if (collected.size === 0) {
-        interaction.editReply('⏰ Tempo esgotado. Tente novamente com `/conquista`.');
+    // Criar collector para os botões
+    const filter = i => 
+      i.customId === 'prev_achievement' || i.customId === 'next_achievement';
+    
+    const collector = interaction.channel.createMessageComponentCollector({ 
+      filter, 
+      time: 120000 
+    });
+
+    collector.on('collect', async (buttonInteraction) => {
+      // Verificar se é o mesmo usuário
+      if (buttonInteraction.user.id !== interaction.user.id) {
+        await buttonInteraction.reply({ 
+          content: '❌ Apenas o usuário que solicitou pode navegar.', 
+          ephemeral: true 
+        });
+        return;
       }
+
+      // Buscar a sessão
+      const session = activeAchievementSessions.get(sessionId);
+      if (!session) {
+        await buttonInteraction.reply({ 
+          content: '❌ Sessão expirada. Use /conquista novamente.', 
+          ephemeral: true 
+        });
+        return;
+      }
+
+      // Atualizar página
+      if (buttonInteraction.customId === 'prev_achievement' && session.currentPage > 0) {
+        session.currentPage--;
+      } else if (buttonInteraction.customId === 'next_achievement' && session.currentPage < session.totalPages - 1) {
+        session.currentPage++;
+      }
+
+      // Atualizar botões
+      const newRow = new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId('prev_achievement')
+            .setLabel('◀️ Anterior')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(session.currentPage === 0),
+          new ButtonBuilder()
+            .setCustomId('next_achievement')
+            .setLabel('Próxima ▶️')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(session.currentPage === session.totalPages - 1)
+        );
+
+      // Atualizar a mensagem
+      await buttonInteraction.update({
+        embeds: [generatePageEmbed(session.currentPage)],
+        components: [newRow]
+      });
+
+      // Atualizar sessão
+      activeAchievementSessions.set(sessionId, session);
+    });
+
+    collector.on('end', async () => {
+      // Remover botões após expirar
+      try {
+        const channel = client.channels.cache.get(interaction.channel.id);
+        if (channel) {
+          const msg = await channel.messages.fetch(reply.id).catch(() => null);
+          if (msg) {
+            await msg.edit({
+              components: []
+            }).catch(() => {});
+          }
+        }
+      } catch (_) {}
+      activeAchievementSessions.delete(sessionId);
     });
   }
 });
