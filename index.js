@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (BOTÃO PARA VÍDEO NA DM - APENAS MEGA MAN X)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (BOTÃO PARA VÍDEO NA DM - APENAS MEGA MAN X + TRADUÇÃO)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -433,6 +433,49 @@ async function getAchievementDescription(appId, apiname) {
     console.error(`❌ Erro ao buscar descrição da conquista ${apiname} para o jogo ${appId}:`, e.message);
   }
   return null;
+}
+
+// ============================================================
+// 6.2 FUNÇÃO DE TRADUÇÃO (MyMemory API)
+// ============================================================
+const translationCache = new Map();
+
+async function traduzirTexto(texto, targetLang = 'pt') {
+  if (!texto || texto.length < 3) return texto;
+  // Se o texto já estiver em português (detecção simples: caracteres acentuados comuns), evita traduzir
+  // Ou se o texto contiver muitas palavras em português (heurística)
+  const palavras = texto.split(' ');
+  let acentos = 0;
+  for (const palavra of palavras) {
+    if (/[áàâãéêíóôõúç]/i.test(palavra)) acentos++;
+  }
+  if (acentos > 1) return texto; // já parece português
+
+  // Verifica cache
+  const cacheKey = `${texto}_${targetLang}`;
+  if (translationCache.has(cacheKey)) return translationCache.get(cacheKey);
+
+  try {
+    const url = 'https://api.mymemory.translated.net/get';
+    const response = await axios.get(url, {
+      params: {
+        q: texto,
+        langpair: `en|${targetLang}`,
+        de: 'steam-family-bot'
+      },
+      timeout: 5000
+    });
+    if (response.data && response.data.responseData && response.data.responseData.translatedText) {
+      const traduzido = response.data.responseData.translatedText;
+      translationCache.set(cacheKey, traduzido);
+      return traduzido;
+    }
+  } catch (e) {
+    console.error('❌ Erro ao traduzir texto:', e.message);
+  }
+  // Fallback: mantém o original
+  translationCache.set(cacheKey, texto);
+  return texto;
 }
 
 // ============================================================
@@ -1312,7 +1355,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (BOTÃO APENAS PARA MEGA MAN X)
+  // 🔥 COMANDO /conquista (COM TRADUÇÃO + BOTÃO APENAS PARA MEGA MAN X)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1426,7 +1469,7 @@ client.on('interactionCreate', async (interaction) => {
     totalConquistas = conquistasList.length;
 
     // ============================================================
-    // FUNÇÕES PARA GERAR O MENU E AS EMBEDS
+    // FUNÇÕES PARA GERAR O MENU E AS EMBEDS (COM TRADUÇÃO)
     // ============================================================
     const ITEMS_PER_PAGE = 25;
     let currentPage = 0;
@@ -1462,11 +1505,17 @@ client.on('interactionCreate', async (interaction) => {
       // Fallback: link da Steam
       const url = videoLink || `https://store.steampowered.com/app/${appid}`;
 
+      // 🔥 TRADUZ A DESCRIÇÃO (se não for para Mega Man X, que já tem descrição em português)
+      let descricao = ach.description || 'Sem descrição';
+      if (!isMegaManX) {
+        descricao = await traduzirTexto(descricao);
+      }
+
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
         .setTitle(`🏆 ${ach.displayName}`)
         .setURL(url)
-        .setDescription(ach.description)
+        .setDescription(descricao)
         .addFields(
           { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
           { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true }
@@ -1555,7 +1604,7 @@ client.on('interactionCreate', async (interaction) => {
         const selectedIndex = parseInt(i.values[0]);
         const ach = conquistasList[selectedIndex];
 
-        // Gerar embed e link do vídeo
+        // Gerar embed e link do vídeo (com tradução)
         const { embed, videoLink } = await generateAchievementEmbed(ach);
 
         // Botão para voltar à lista
