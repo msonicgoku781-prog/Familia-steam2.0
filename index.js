@@ -25,13 +25,15 @@ const {
   QUERO_CHANNEL_ID,
   RULES_CHANNEL_ID,
   DONO_ID,
-  YOUTUBE_API_KEY
+  YOUTUBE_API_KEY,
+  GOOGLE_TRANSLATE_API_KEY
 } = process.env;
 
 console.log('🚀 [3] Variáveis lidas.');
 console.log(`📌 DISCORD_TOKEN presente: ${DISCORD_TOKEN ? 'SIM' : 'NÃO'}`);
 console.log(`📌 QUERO_CHANNEL_ID: ${QUERO_CHANNEL_ID || 'NÃO DEFINIDO'}`);
 console.log(`📌 YOUTUBE_API_KEY presente: ${YOUTUBE_API_KEY ? 'SIM' : 'NÃO'}`);
+console.log(`📌 GOOGLE_TRANSLATE_API_KEY presente: ${GOOGLE_TRANSLATE_API_KEY ? 'SIM' : 'NÃO'}`);
 
 if (!DISCORD_TOKEN || !STEAM_KEY || !STEAM_IDS || !CHANNEL_ID || !QUERO_CHANNEL_ID || !RULES_CHANNEL_ID) {
   console.error('❌ Variáveis obrigatórias ausentes. Verifique .env');
@@ -436,11 +438,11 @@ async function getAchievementDescription(appId, apiname) {
 }
 
 // ============================================================
-// 6.2 FUNÇÃO DE TRADUÇÃO (LibreTranslate + Fallback MyMemory)
+// 6.2 FUNÇÃO DE TRADUÇÃO (Google Translate API + Fallback)
 // ============================================================
 const translationCache = new Map();
 
-async function traduzirTexto(texto, targetLang = 'pt') {
+async function traduzirTextoGoogle(texto, targetLang = 'pt') {
   if (!texto || texto.length < 3) return texto;
   
   // Verifica se já está em português (heurística)
@@ -454,7 +456,36 @@ async function traduzirTexto(texto, targetLang = 'pt') {
   const cacheKey = `${texto}_${targetLang}`;
   if (translationCache.has(cacheKey)) return translationCache.get(cacheKey);
 
-  // Tenta LibreTranslate
+  // Tenta Google Translate API primeiro
+  if (GOOGLE_TRANSLATE_API_KEY) {
+    try {
+      const url = `https://translation.googleapis.com/language/translate/v2`;
+      const response = await axios.post(url, {
+        q: texto,
+        target: targetLang,
+        format: 'text',
+        source: 'en'
+      }, {
+        params: {
+          key: GOOGLE_TRANSLATE_API_KEY
+        },
+        timeout: 5000,
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.data && response.data.data && response.data.data.translations && response.data.data.translations[0]) {
+        const traduzido = response.data.data.translations[0].translatedText;
+        if (traduzido && !traduzido.includes('INVALID') && !traduzido.includes('ERROR')) {
+          translationCache.set(cacheKey, traduzido);
+          return traduzido;
+        }
+      }
+    } catch (e) {
+      console.warn(`⚠️ Google Translate API falhou: ${e.message}`);
+    }
+  }
+
+  // Fallback: LibreTranslate
   const servers = [
     'https://libretranslate.com/translate',
     'https://translate.argosopentech.com/translate',
@@ -485,7 +516,7 @@ async function traduzirTexto(texto, targetLang = 'pt') {
     }
   }
 
-  // Fallback: MyMemory
+  // Fallback final: MyMemory
   try {
     const url = 'https://api.mymemory.translated.net/get';
     const response = await axios.get(url, {
@@ -1539,7 +1570,7 @@ client.on('interactionCreate', async (interaction) => {
       // Fallback: link da Steam
       const url = videoLink || `https://store.steampowered.com/app/${appid}`;
 
-      // 🔥 OBTÉM A DESCRIÇÃO
+      // 🔥 OBTÉM A DESCRIÇÃO COM TRADUÇÃO
       let descricao = ach.description || 'Sem descrição';
 
       // Se NÃO for Mega Man X (que já tem descrição em português no JSON)
@@ -1552,8 +1583,8 @@ client.on('interactionCreate', async (interaction) => {
         }
         // Se não tiver acentos, provavelmente está em inglês -> traduz
         if (acentos < 2) {
-          console.log(`🔄 Traduzindo: "${descricao.substring(0, 30)}..."`);
-          const traduzida = await traduzirTexto(descricao);
+          console.log(`🔄 Traduzindo descrição: "${descricao.substring(0, 30)}..."`);
+          const traduzida = await traduzirTextoGoogle(descricao);
           if (traduzida && !traduzida.includes('INVALID') && !traduzida.includes('ERROR')) {
             descricao = traduzida;
             console.log(`✅ Tradução concluída: "${descricao.substring(0, 30)}..."`);
