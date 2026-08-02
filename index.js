@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (ENVIO DE VÍDEO POR DM)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (ENVIO DE VÍDEO POR DM - CORRIGIDO)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1310,7 +1310,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM ENVIO DE VÍDEO POR DM)
+  // 🔥 COMANDO /conquista (COM ENVIO DE VÍDEO POR DM - CORRIGIDO)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1569,9 +1569,9 @@ client.on('interactionCreate', async (interaction) => {
         try {
           const user = await client.users.fetch(i.user.id);
           if (videoLink) {
-            // Envia uma mensagem privada com o link no content (ativa o player)
+            // CORREÇÃO: content é APENAS o link (sem texto extra) para ativar o player
             await user.send({
-              content: `🎬 **Vídeo da conquista:** ${videoLink}`,
+              content: videoLink,
               embeds: [embed]
             });
           } else {
