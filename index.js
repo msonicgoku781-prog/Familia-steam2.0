@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (MENU INTERATIVO + VÍDEO DO JSON)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (MENU INTERATIVO + VÍDEO PLAYER)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1310,7 +1310,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM MENU INTERATIVO + VÍDEO DO JSON)
+  // 🔥 COMANDO /conquista (COM MENU INTERATIVO + VÍDEO PLAYER)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1366,7 +1366,7 @@ client.on('interactionCreate', async (interaction) => {
           displayName: nome,
           description: conquestMappings[nome].description || 'Sem descrição',
           iconUrl: conquestMappings[nome].image || null,
-          video: conquestMappings[nome].video || null // <-- CAMPO VIDEO DO JSON
+          video: conquestMappings[nome].video || null // Campo video do JSON
         }));
       conquistasList.sort((a, b) => a.name.localeCompare(b.name));
     } else {
@@ -1431,8 +1431,8 @@ client.on('interactionCreate', async (interaction) => {
 
     // Função para gerar a embed da conquista selecionada
     async function generateAchievementEmbed(ach) {
-      // Prioridade: campo "video" do JSON
-      let videoLink = ach.video || null;
+      // Prioridade: campo "video" do JSON (forçando HTTPS)
+      let videoLink = ach.video ? ach.video.replace(/^http:/, 'https:') : null;
 
       // Se não tiver vídeo no JSON e tiver chave da API, tenta buscar automaticamente (fallback)
       if (!videoLink && YOUTUBE_API_KEY) {
@@ -1463,7 +1463,7 @@ client.on('interactionCreate', async (interaction) => {
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
         .setTitle(`🏆 ${ach.displayName}`)
-        .setURL(url) // <<< VÍDEO APARECE COMO PLAYER AQUI
+        .setURL(url) // <<< ESSA LINHA FAZ O PLAYER APARECER
         .setDescription(ach.description)
         .addFields(
           { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
@@ -1477,7 +1477,6 @@ client.on('interactionCreate', async (interaction) => {
       if (ach.iconUrl) {
         embed.setThumbnail(ach.iconUrl);
       } else {
-        // Fallback: logo da Steam
         embed.setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png');
       }
 
