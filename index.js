@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COMPLETA COM /conquista
+// BOT STEAM FAMÍLIA - COM /conquistasfaltando
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -8,7 +8,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, AttachmentBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 console.log('🚀 [2] Dependências carregadas.');
 
@@ -412,30 +412,6 @@ async function getAchievementDisplayName(appId, apiname) {
   return apiname;
 }
 
-// 🔥 CACHE PARA DESCRIÇÕES DE CONQUISTAS (/conquista)
-const achievementDescriptionCache = {};
-
-async function getAchievementDescription(appId, apiname) {
-  const cacheKey = `${appId}_${apiname}`;
-  if (achievementDescriptionCache[cacheKey]) return achievementDescriptionCache[cacheKey];
-
-  try {
-    const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
-    const params = { key: STEAM_KEY, appid: appId, l: 'portuguese' };
-    const data = await fetchSteam(url, params, 2);
-    if (data?.game?.availableGameStats?.achievements) {
-      const ach = data.game.availableGameStats.achievements.find(a => a.name === apiname);
-      if (ach && ach.description) {
-        achievementDescriptionCache[cacheKey] = ach.description;
-        return ach.description;
-      }
-    }
-  } catch (e) {
-    console.error(`❌ Erro ao buscar descrição da conquista ${apiname} para o jogo ${appId}:`, e.message);
-  }
-  return null;
-}
-
 console.log('🚀 [8] Funções da Steam API carregadas.');
 
 // ============================================================
@@ -588,7 +564,7 @@ async function enviarRegras() {
       '`/quero-remover [jogo]` – Remove um jogo da sua lista /quero.\n' +
       '`/dbstatus` – Status do banco de dados (apenas dono).\n' +
       '`/regras` – Exibe esta mensagem novamente.\n' +
-      '`/conquista [nome]` – Busca a descrição de uma conquista pelo nome.\n\n' +
+      '`/conquistasfaltando` – Mostra as conquistas faltantes de um jogo seu.\n\n' +
       '**🔔 NOTIFICAÇÕES**\n' +
       '• 🆕 Novos jogos compatíveis são anunciados com `@everyone`.\n' +
       '• 🏆 Conquistas são monitoradas e notificadas no canal de conquistas.\n' +
@@ -613,7 +589,7 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 10. VERIFICAÇÃO DE CONQUISTAS (CORRIGIDA - FALTAM CONQUISTAS)
+// 10. VERIFICAÇÃO DE CONQUISTAS
 // ============================================================
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length) return;
@@ -661,7 +637,6 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       contador++;
       const progressoAtual = totalAntigo + contador;
       const faltam = totalJogo - progressoAtual;
-
       const nomeBonito = await getAchievementDisplayName(appid, ach.apiname);
 
       const embed = new EmbedBuilder()
@@ -971,16 +946,17 @@ client.once('clientReady', async () => {
         { name: 'quero-remover', description: 'Remove um jogo da sua lista /quero', options: [{ name: 'jogo', description: 'Nome do jogo para remover', type: 3, required: true }] },
         { name: 'dbstatus', description: '[DONO] Status do banco de dados' },
         { name: 'regras', description: 'Mostra as regras e comandos do servidor' },
-        // 🔥 NOVO COMANDO /conquista
+        // 🔥 NOVO COMANDO /conquistasfaltando
         {
-          name: 'conquista',
-          description: 'Busca a descrição de uma conquista pelo nome',
+          name: 'conquistasfaltando',
+          description: 'Mostra as conquistas que você ainda não tem em um jogo (com mini menu)',
           options: [
             {
-              name: 'nome',
-              description: 'Nome da conquista (parcial ou completo)',
+              name: 'jogo',
+              description: 'Nome do jogo (parcial ou completo)',
               type: 3,
-              required: true
+              required: true,
+              autocomplete: true
             }
           ]
         }
@@ -1000,7 +976,7 @@ client.once('clientReady', async () => {
 
     try {
       const dono = await client.users.fetch(DONO_ID);
-      await dono.send('🚀 Bot Steam Família está online! Comando /conquista adicionado.');
+      await dono.send('🚀 Bot Steam Família está online! Comando /conquistasfaltando adicionado.');
     } catch (_) {}
   } catch (err) {
     console.error('❌ ERRO FATAL NO EVENTO clientReady:', err);
@@ -1111,7 +1087,7 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // /quero-listar (CORRIGIDO)
+  // /quero-listar
   if (interaction.commandName === 'quero-listar') {
     await interaction.deferReply({ ephemeral: true });
     try {
@@ -1207,108 +1183,183 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista
+  // 🔥 COMANDO /conquistasfaltando
   // ============================================================
-  if (interaction.commandName === 'conquista') {
+  if (interaction.commandName === 'conquistasfaltando') {
     await interaction.deferReply({ ephemeral: true });
-    const nomeBusca = interaction.options.getString('nome').toLowerCase().trim();
+    const nomeJogo = interaction.options.getString('jogo').toLowerCase().trim();
 
-    // 1. Coletar todos os jogos da família (união dos históricos)
-    const jogosFamilia = new Set();
-    for (const steamId of STEAM_IDS_ARRAY) {
-      const jogos = db.historicoJogos[steamId] || [];
-      jogos.forEach(appid => jogosFamilia.add(appid));
+    // Buscar SteamID do usuário
+    let userSteamId = null;
+    for (const [sid, m] of Object.entries(MEMBROS)) {
+      if (m.discordId === interaction.user.id) {
+        userSteamId = sid;
+        break;
+      }
     }
-
-    if (jogosFamilia.size === 0) {
-      await interaction.editReply('❌ Nenhum jogo encontrado no histórico da família.');
+    if (!userSteamId) {
+      await interaction.editReply('❌ Você não está mapeado como membro da família Steam.');
       return;
     }
 
-    // 2. Para cada jogo, buscar conquistas que correspondam ao nome
-    const resultados = [];
-    for (const appid of jogosFamilia) {
-      try {
-        const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
-        const params = { key: STEAM_KEY, appid: appid, l: 'portuguese' };
-        const data = await fetchSteam(url, params, 2);
-        if (data?.game?.availableGameStats?.achievements) {
-          const conquistas = data.game.availableGameStats.achievements;
-          for (const ach of conquistas) {
-            const displayName = ach.displayName?.toLowerCase() || '';
-            const apiname = ach.name?.toLowerCase() || '';
-            if (displayName.includes(nomeBusca) || apiname.includes(nomeBusca)) {
-              const detalhes = await getGameDetails(appid);
-              const nomeJogo = detalhes?.name || `App ${appid}`;
-              resultados.push({
-                appid,
-                nomeJogo,
-                apiname: ach.name,
-                displayName: ach.displayName || ach.name,
-                description: ach.description || 'Descrição não disponível'
-              });
-            }
-          }
+    // Buscar jogos do usuário
+    const jogos = await getOwnedGames(userSteamId);
+    if (!jogos.length) {
+      await interaction.editReply('❌ Não foi possível encontrar seus jogos na Steam.');
+      return;
+    }
+
+    // Filtrar jogos que correspondem ao nome (case-insensitive, parcial)
+    const jogosFiltrados = jogos.filter(g => g.name.toLowerCase().includes(nomeJogo));
+    if (jogosFiltrados.length === 0) {
+      await interaction.editReply(`❌ Nenhum jogo encontrado com o nome **${nomeJogo}**.`);
+      return;
+    }
+
+    // Se mais de um jogo, pedir para escolher
+    if (jogosFiltrados.length > 1) {
+      let msg = `🔍 Encontrei **${jogosFiltrados.length}** jogos com o nome **${nomeJogo}**.\nDigite o número correspondente ao jogo que você quer ver as conquistas faltantes:\n\n`;
+      jogosFiltrados.forEach((j, i) => {
+        msg += `**${i + 1}.** ${j.name}\n`;
+      });
+      msg += `\nResponda com o número (1 a ${jogosFiltrados.length}) em até 30 segundos.`;
+
+      await interaction.editReply(msg);
+
+      const filter = m => m.author.id === interaction.user.id && /^\d+$/.test(m.content) && parseInt(m.content) >= 1 && parseInt(m.content) <= jogosFiltrados.length;
+      const collector = interaction.channel.createMessageCollector({ filter, max: 1, time: 30000 });
+
+      collector.on('collect', async (message) => {
+        const index = parseInt(message.content) - 1;
+        const jogoEscolhido = jogosFiltrados[index];
+        await mostrarConquistasFaltantes(interaction, userSteamId, jogoEscolhido);
+      });
+
+      collector.on('end', collected => {
+        if (collected.size === 0) {
+          interaction.editReply('⏰ Tempo esgotado. Tente novamente.');
         }
-      } catch (e) {
-        console.error(`❌ Erro ao buscar esquema do jogo ${appid}:`, e.message);
-      }
+      });
+    } else {
+      // Apenas um jogo, mostrar diretamente
+      await mostrarConquistasFaltantes(interaction, userSteamId, jogosFiltrados[0]);
     }
-
-    if (resultados.length === 0) {
-      await interaction.editReply(`❌ Nenhuma conquista encontrada com o nome **${nomeBusca}**.`);
-      return;
-    }
-
-    // 3. Se houver apenas um resultado, exibe diretamente
-    if (resultados.length === 1) {
-      const r = resultados[0];
-      const embed = new EmbedBuilder()
-        .setColor(0x00FF00)
-        .setTitle(`🏆 ${r.displayName}`)
-        .setDescription(r.description)
-        .addFields(
-          { name: '🎮 Jogo', value: r.nomeJogo, inline: true },
-          { name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${r.appid})`, inline: true }
-        );
-      await interaction.editReply({ embeds: [embed] });
-      return;
-    }
-
-    // 4. Múltiplos resultados – oferece opções
-    let msg = `🔍 Encontrei **${resultados.length}** conquista(s) com o nome **${nomeBusca}**.\nDigite o número correspondente ao jogo que você quer ver:\n\n`;
-    resultados.forEach((r, i) => {
-      msg += `**${i + 1}.** ${r.displayName} — *${r.nomeJogo}*\n`;
-    });
-    msg += `\nResponda com o número (1 a ${resultados.length}) em até 30 segundos.`;
-
-    await interaction.editReply(msg);
-
-    // Coletor de resposta
-    const filter = m => m.author.id === interaction.user.id && /^\d+$/.test(m.content) && parseInt(m.content) >= 1 && parseInt(m.content) <= resultados.length;
-    const collector = interaction.channel.createMessageCollector({ filter, max: 1, time: 30000 });
-
-    collector.on('collect', async (message) => {
-      const index = parseInt(message.content) - 1;
-      const r = resultados[index];
-      const embed = new EmbedBuilder()
-        .setColor(0x00FF00)
-        .setTitle(`🏆 ${r.displayName}`)
-        .setDescription(r.description)
-        .addFields(
-          { name: '🎮 Jogo', value: r.nomeJogo, inline: true },
-          { name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${r.appid})`, inline: true }
-        );
-      await interaction.editReply({ content: '✅ Aqui está a descrição da conquista:', embeds: [embed] });
-    });
-
-    collector.on('end', collected => {
-      if (collected.size === 0) {
-        interaction.editReply('⏰ Tempo esgotado. Tente novamente com `/conquista`.');
-      }
-    });
   }
 });
+
+// Função auxiliar para exibir conquistas faltantes com paginação
+async function mostrarConquistasFaltantes(interaction, steamId, jogo) {
+  const appid = jogo.appid;
+  const nomeJogo = jogo.name;
+
+  // Buscar todas as conquistas do jogo (esquema)
+  let schemaConquistas = [];
+  try {
+    const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
+    const params = { key: STEAM_KEY, appid: appid, l: 'portuguese' };
+    const data = await fetchSteam(url, params, 2);
+    if (data?.game?.availableGameStats?.achievements) {
+      schemaConquistas = data.game.availableGameStats.achievements;
+    }
+  } catch (e) {
+    console.error(`❌ Erro ao buscar esquema do jogo ${appid}:`, e.message);
+  }
+
+  if (!schemaConquistas.length) {
+    await interaction.editReply(`❌ Não foi possível obter a lista de conquistas do jogo **${nomeJogo}**.`);
+    return;
+  }
+
+  // Buscar conquistas já desbloqueadas pelo usuário
+  let conquistasDesbloqueadas = [];
+  try {
+    const data = await getPlayerAchievements(steamId, appid);
+    if (data) {
+      conquistasDesbloqueadas = data.filter(c => c.achieved === 1).map(c => c.apiname);
+    }
+  } catch (e) {
+    console.error(`❌ Erro ao buscar conquistas desbloqueadas de ${steamId} para o jogo ${appid}:`, e.message);
+  }
+
+  // Filtrar conquistas faltantes
+  const conquistasFaltantes = schemaConquistas.filter(ach => !conquistasDesbloqueadas.includes(ach.name));
+
+  if (conquistasFaltantes.length === 0) {
+    await interaction.editReply(`🎉 Parabéns! Você já desbloqueou **todas** as conquistas de **${nomeJogo}**!`);
+    return;
+  }
+
+  // Paginação
+  const ITENS_POR_PAGINA = 5;
+  let paginaAtual = 0;
+  const totalPaginas = Math.ceil(conquistasFaltantes.length / ITENS_POR_PAGINA);
+
+  async function enviarPagina(pagina) {
+    const inicio = pagina * ITENS_POR_PAGINA;
+    const fim = inicio + ITENS_POR_PAGINA;
+    const itensPagina = conquistasFaltantes.slice(inicio, fim);
+
+    const embed = new EmbedBuilder()
+      .setColor(0x00FF00)
+      .setTitle(`🏆 Conquistas faltantes de **${nomeJogo}**`)
+      .setDescription(`Mostrando ${itensPagina.length} de ${conquistasFaltantes.length} conquistas faltantes (Página ${pagina+1}/${totalPaginas})`)
+      .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`);
+
+    let desc = '';
+    for (const ach of itensPagina) {
+      const displayName = ach.displayName || ach.name;
+      const icon = ach.icon ? `https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/${appid}/${ach.icon}.jpg` : null;
+      desc += `**${displayName}**\n`;
+      if (icon) desc += `![ícone](${icon})\n`;
+      desc += `\n`;
+    }
+    embed.setDescription(desc);
+
+    // Botões de navegação
+    const row = new ActionRowBuilder();
+    if (pagina > 0) {
+      row.addComponents(new ButtonBuilder()
+        .setCustomId('anterior')
+        .setLabel('◀ Anterior')
+        .setStyle(ButtonStyle.Primary)
+      );
+    }
+    if (pagina < totalPaginas - 1) {
+      row.addComponents(new ButtonBuilder()
+        .setCustomId('proximo')
+        .setLabel('Próximo ▶')
+        .setStyle(ButtonStyle.Primary)
+      );
+    }
+
+    // Envia ou edita a mensagem
+    if (pagina === 0 && !interaction.replied) {
+      await interaction.editReply({ embeds: [embed], components: row.components.length ? [row] : [] });
+    } else {
+      await interaction.editReply({ embeds: [embed], components: row.components.length ? [row] : [] });
+    }
+
+    // Coletor de interações com botões
+    if (row.components.length) {
+      const filter = i => i.user.id === interaction.user.id && (i.customId === 'anterior' || i.customId === 'proximo');
+      const collector = interaction.channel.createMessageComponentCollector({ filter, max: 1, time: 60000 });
+
+      collector.on('collect', async (i) => {
+        if (i.customId === 'anterior') paginaAtual--;
+        else if (i.customId === 'proximo') paginaAtual++;
+        await i.deferUpdate();
+        await enviarPagina(paginaAtual);
+      });
+
+      collector.on('end', () => {
+        // Remove botões após 1 minuto
+        interaction.editReply({ components: [] }).catch(() => {});
+      });
+    }
+  }
+
+  await enviarPagina(0);
+}
 
 // ============================================================
 // 15. !resetranking
