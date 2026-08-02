@@ -977,7 +977,6 @@ async function carregarMapeamentoConquistas() {
       const fetched = await client.channels.fetch(channelId);
       if (fetched) {
         console.log('✅ Canal #lista-quero encontrado via fetch.');
-        // Tenta novamente com o canal obtido
         return await carregarMapeamentoDoCanal(fetched);
       }
     } catch (e) {
@@ -997,7 +996,6 @@ async function carregarMapeamentoDoCanal(channel) {
     );
     if (!msg) {
       console.warn('⚠️ Nenhuma mensagem com o arquivo megaman_x_achievements.json encontrada.');
-      // Lista anexos para debug
       messages.forEach(m => {
         m.attachments.forEach(a => console.log(`📎 Anexo encontrado: ${a.name}`));
       });
@@ -1382,8 +1380,8 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    // 7. Verifica se é o Mega Man X Legacy Collection (appid 743890)
-    const isMegaManX = (appid === 743890);
+    // 7. Verifica se é o Mega Man X Legacy Collection (por appid OU pelo nome)
+    const isMegaManX = (appid === 743890 || jogoInfo.nome.includes('Mega Man X Legacy Collection'));
 
     // 8. Aplica mapeamento personalizado se disponível
     const faltantesComMapeamento = faltantes.map(ach => {
