@@ -434,7 +434,27 @@ async function getAchievementDescription(appId, apiname) {
   return null;
 }
 
-async function getAchievementIcon(appId, apiname) {
+// ============================================================
+// 6.1 FUNÇÃO PARA BUSCAR ÍCONE DO TRUESTEAMACHIEVEMENTS
+// ============================================================
+async function getAchievementIconFromTrueSteam(appId, apiname) {
+  try {
+    // Primeiro tenta buscar do TrueSteamAchievements
+    const url = `https://api.truesteamachievements.com/api/v1/AchievementIcon/${appId}/${encodeURIComponent(apiname)}`;
+    const response = await axios.get(url, {
+      timeout: 5000,
+      headers: {
+        'User-Agent': 'SteamFamilyBot/2.0'
+      }
+    });
+    if (response.data && response.data.icon) {
+      return response.data.icon;
+    }
+  } catch (e) {
+    console.log(`⚠️ TrueSteamAchievements não retornou ícone para ${apiname}, tentando Steam...`);
+  }
+  
+  // Fallback: tenta o Steam
   try {
     const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
     const params = { key: STEAM_KEY, appid: appId, l: 'portuguese' };
@@ -442,12 +462,27 @@ async function getAchievementIcon(appId, apiname) {
     if (data?.game?.availableGameStats?.achievements) {
       const ach = data.game.availableGameStats.achievements.find(a => a.name === apiname);
       if (ach && ach.icon) {
-        return `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`;
+        // Tenta algumas variações de URL
+        const urls = [
+          `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`,
+          `https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`,
+          `https://steamuserimages-a.akamaihd.net/ugc/${ach.icon}`
+        ];
+        
+        for (const url of urls) {
+          try {
+            const test = await axios.head(url, { timeout: 3000 });
+            if (test.status === 200) {
+              return url;
+            }
+          } catch (_) {}
+        }
       }
     }
   } catch (e) {
-    console.error(`❌ Erro ao buscar ícone da conquista ${apiname} para o jogo ${appId}:`, e.message);
+    console.error(`❌ Erro ao buscar ícone do Steam para ${apiname}:`, e.message);
   }
+  
   return null;
 }
 
@@ -1283,20 +1318,24 @@ client.on('interactionCreate', async (interaction) => {
       desbloqueadas = [];
     }
 
-    // 6. Filtrar conquistas não desbloqueadas
-    const faltantes = conquistasSchema
-      .filter(ach => !desbloqueadas.includes(ach.name))
-      .map(ach => {
+    // 6. Filtrar conquistas não desbloqueadas e buscar ícones
+    const faltantes = [];
+    for (const ach of conquistasSchema) {
+      if (!desbloqueadas.includes(ach.name)) {
+        // Buscar ícone do TrueSteamAchievements
         let iconUrl = null;
-        if (ach.icon) {
-          // URL correta dos ícones da Steam
-          iconUrl = `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appid}/${ach.icon}.jpg`;
+        try {
+          iconUrl = await getAchievementIconFromTrueSteam(appid, ach.name);
+        } catch (e) {
+          console.log(`⚠️ Erro ao buscar ícone para ${ach.name}:`, e.message);
         }
-        return {
+        
+        faltantes.push({
           ...ach,
           iconUrl: iconUrl
-        };
-      });
+        });
+      }
+    }
 
     if (faltantes.length === 0) {
       await interaction.editReply(`🎉 Você já desbloqueou **todas** as conquistas de **${jogoInfo.nome}**!`);
@@ -1326,7 +1365,7 @@ client.on('interactionCreate', async (interaction) => {
         .setTimestamp();
 
       // Adicionar o ícone como THUMBNAIL (imagem visível diretamente)
-      if (ach.iconUrl) {
+      if (ach.iconUrl && ach.iconUrl.startsWith('http')) {
         embed.setThumbnail(ach.iconUrl);
       } else {
         // Ícone padrão se não tiver imagem
@@ -1489,4 +1528,3 @@ client.login(DISCORD_TOKEN)
 
 process.on('SIGTERM', () => { process.exit(0); });
 process.on('SIGINT', () => { process.exit(0); });
-        
