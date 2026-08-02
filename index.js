@@ -1223,7 +1223,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM PAGINAÇÃO E IMAGENS DIRETAS)
+  // 🔥 COMANDO /conquista (COM THUMBNAIL E PAGINAÇÃO)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1250,7 +1250,7 @@ client.on('interactionCreate', async (interaction) => {
     }
     const appid = jogoInfo.appid;
 
-    // 3. Verificar se o usuário possui o jogo (ou tem acesso)
+    // 3. Verificar se o usuário possui o jogo
     const ownedGames = await getOwnedGames(steamId);
     const possui = ownedGames.some(g => g.appid === appid);
     if (!possui) {
@@ -1274,7 +1274,7 @@ client.on('interactionCreate', async (interaction) => {
     }
     const conquistasSchema = schemaData.game.availableGameStats.achievements;
 
-    // 5. Buscar conquistas já desbloqueadas do usuário para este jogo
+    // 5. Buscar conquistas já desbloqueadas do usuário
     let desbloqueadas = [];
     try {
       const playerAch = await getPlayerAchievements(steamId, appid);
@@ -1283,48 +1283,55 @@ client.on('interactionCreate', async (interaction) => {
       desbloqueadas = [];
     }
 
-    // 6. Filtrar conquistas não desbloqueadas e adicionar os ícones
+    // 6. Filtrar conquistas não desbloqueadas
     const faltantes = conquistasSchema
       .filter(ach => !desbloqueadas.includes(ach.name))
-      .map(ach => ({
-        ...ach,
-        iconUrl: ach.icon ? `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appid}/${ach.icon}.jpg` : null
-      }));
+      .map(ach => {
+        let iconUrl = null;
+        if (ach.icon) {
+          // URL correta dos ícones da Steam
+          iconUrl = `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appid}/${ach.icon}.jpg`;
+        }
+        return {
+          ...ach,
+          iconUrl: iconUrl
+        };
+      });
 
     if (faltantes.length === 0) {
       await interaction.editReply(`🎉 Você já desbloqueou **todas** as conquistas de **${jogoInfo.nome}**!`);
       return;
     }
 
-    // 7. Paginação: 5 conquistas por página
-    const ITEMS_PER_PAGE = 5;
-    const totalPages = Math.ceil(faltantes.length / ITEMS_PER_PAGE);
+    // 7. Paginação: 1 conquista por página (com thumbnail)
+    const ITEMS_PER_PAGE = 1;
+    const totalPages = faltantes.length;
     let currentPage = 0;
 
-    // Função para gerar a embed da página atual
-    function generatePageEmbed(page) {
-      const start = page * ITEMS_PER_PAGE;
-      const end = Math.min(start + ITEMS_PER_PAGE, faltantes.length);
-      const pageItems = faltantes.slice(start, end);
-
+    // Função para gerar a embed da conquista atual
+    function generateAchievementEmbed(page) {
+      const ach = faltantes[page];
+      const num = page + 1;
+      
       const embed = new EmbedBuilder()
-        .setColor(0x00AE86)
-        .setTitle(`🏆 Conquistas faltantes de ${jogoInfo.nome}`)
-        .setDescription(`Total: **${faltantes.length}** conquistas faltantes\nPágina ${page + 1}/${totalPages}`)
-        .setFooter({ text: `Clique nos botões abaixo para navegar` })
+        .setColor(0xFFD700)
+        .setTitle(`🏆 ${num}. ${ach.displayName || ach.name}`)
+        .setDescription(ach.description || 'Sem descrição')
+        .addFields(
+          { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
+          { name: '📊 Progresso', value: `${num}/${faltantes.length} conquistas faltantes`, inline: true },
+          { name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: false }
+        )
+        .setFooter({ text: `Conquista ${num} de ${faltantes.length} • Use os botões para navegar` })
         .setTimestamp();
 
-      // Adicionar cada conquista como um campo com a imagem
-      pageItems.forEach((ach, index) => {
-        const num = start + index + 1;
-        const descricao = ach.description || 'Sem descrição';
-        const iconDisplay = ach.iconUrl ? `[🖼️ Ver ícone](${ach.iconUrl})` : 'Sem ícone';
-        embed.addFields({
-          name: `${num}. ${ach.displayName || ach.name}`,
-          value: `${descricao}\n${iconDisplay}`,
-          inline: false
-        });
-      });
+      // Adicionar o ícone como THUMBNAIL (imagem visível diretamente)
+      if (ach.iconUrl) {
+        embed.setThumbnail(ach.iconUrl);
+      } else {
+        // Ícone padrão se não tiver imagem
+        embed.setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png');
+      }
 
       return embed;
     }
@@ -1344,9 +1351,9 @@ client.on('interactionCreate', async (interaction) => {
           .setDisabled(currentPage === totalPages - 1)
       );
 
-    // Enviar a primeira página
+    // Enviar a primeira conquista
     const reply = await interaction.editReply({
-      embeds: [generatePageEmbed(currentPage)],
+      embeds: [generateAchievementEmbed(currentPage)],
       components: [row]
     });
 
@@ -1354,13 +1361,13 @@ client.on('interactionCreate', async (interaction) => {
     const sessionId = `${interaction.user.id}_${interaction.id}`;
     activeAchievementSessions.set(sessionId, {
       userId: interaction.user.id,
-      appid: appid,
       faltantes: faltantes,
       currentPage: currentPage,
       totalPages: totalPages,
       messageId: reply.id,
       channelId: interaction.channel.id,
-      jogoNome: jogoInfo.nome
+      jogoNome: jogoInfo.nome,
+      appid: appid
     });
 
     // Criar collector para os botões
@@ -1414,9 +1421,9 @@ client.on('interactionCreate', async (interaction) => {
             .setDisabled(session.currentPage === session.totalPages - 1)
         );
 
-      // Atualizar a mensagem
+      // Atualizar a mensagem com a nova conquista
       await buttonInteraction.update({
-        embeds: [generatePageEmbed(session.currentPage)],
+        embeds: [generateAchievementEmbed(session.currentPage)],
         components: [newRow]
       });
 
@@ -1482,3 +1489,4 @@ client.login(DISCORD_TOKEN)
 
 process.on('SIGTERM', () => { process.exit(0); });
 process.on('SIGINT', () => { process.exit(0); });
+        
