@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (MENU INTERATIVO + VÍDEO)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (MENU INTERATIVO + VÍDEO DO JSON)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1310,7 +1310,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM MENU INTERATIVO + VÍDEO PLAYER)
+  // 🔥 COMANDO /conquista (COM MENU INTERATIVO + VÍDEO DO JSON)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1365,7 +1365,8 @@ client.on('interactionCreate', async (interaction) => {
           name: nome,
           displayName: nome,
           description: conquestMappings[nome].description || 'Sem descrição',
-          iconUrl: conquestMappings[nome].image || null
+          iconUrl: conquestMappings[nome].image || null,
+          video: conquestMappings[nome].video || null // <-- CAMPO VIDEO DO JSON
         }));
       conquistasList.sort((a, b) => a.name.localeCompare(b.name));
     } else {
@@ -1406,7 +1407,8 @@ client.on('interactionCreate', async (interaction) => {
           name: ach.name,
           displayName: ach.displayName || ach.name,
           description: ach.description || 'Sem descrição',
-          iconUrl: null // Será preenchido depois, se necessário
+          iconUrl: null,
+          video: null
         }));
       conquistasList.sort((a, b) => a.displayName.localeCompare(b.displayName));
     }
@@ -1422,36 +1424,6 @@ client.on('interactionCreate', async (interaction) => {
     totalConquistas = conquistasList.length;
 
     // ============================================================
-    // FUNÇÃO PARA BUSCAR VÍDEO NO YOUTUBE (USANDO API)
-    // ============================================================
-    async function buscarVideoYouTube(nomeConquista) {
-      if (!YOUTUBE_API_KEY) {
-        return null; // Sem chave, não busca
-      }
-      try {
-        const searchQuery = `Mega Man X Legacy Collection ${encodeURIComponent(nomeConquista)}`;
-        const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
-          params: {
-            part: 'snippet',
-            type: 'video',
-            maxResults: 1,
-            q: searchQuery,
-            key: YOUTUBE_API_KEY
-          },
-          timeout: 5000
-        });
-        const videoId = response.data.items?.[0]?.id?.videoId;
-        if (videoId) {
-          return `https://www.youtube.com/watch?v=${videoId}`;
-        }
-        return null;
-      } catch (e) {
-        console.error('Erro ao buscar vídeo no YouTube:', e.message);
-        return null;
-      }
-    }
-
-    // ============================================================
     // FUNÇÕES PARA GERAR O MENU E AS EMBEDS
     // ============================================================
     const ITEMS_PER_PAGE = 25;
@@ -1459,10 +1431,30 @@ client.on('interactionCreate', async (interaction) => {
 
     // Função para gerar a embed da conquista selecionada
     async function generateAchievementEmbed(ach) {
-      // Buscar vídeo automaticamente (se tiver chave da API)
-      let videoLink = null;
-      if (YOUTUBE_API_KEY) {
-        videoLink = await buscarVideoYouTube(ach.displayName);
+      // Prioridade: campo "video" do JSON
+      let videoLink = ach.video || null;
+
+      // Se não tiver vídeo no JSON e tiver chave da API, tenta buscar automaticamente (fallback)
+      if (!videoLink && YOUTUBE_API_KEY) {
+        try {
+          const searchQuery = `Mega Man X Legacy Collection ${encodeURIComponent(ach.displayName)}`;
+          const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+            params: {
+              part: 'snippet',
+              type: 'video',
+              maxResults: 1,
+              q: searchQuery,
+              key: YOUTUBE_API_KEY
+            },
+            timeout: 5000
+          });
+          const videoId = response.data.items?.[0]?.id?.videoId;
+          if (videoId) {
+            videoLink = `https://www.youtube.com/watch?v=${videoId}`;
+          }
+        } catch (e) {
+          console.error('Erro ao buscar vídeo no YouTube:', e.message);
+        }
       }
 
       // Fallback: link da Steam
