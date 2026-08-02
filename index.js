@@ -1343,24 +1343,43 @@ client.on('interactionCreate', async (interaction) => {
     const isMegaManX = (appid === 743890 || jogoInfo.nome.includes('Mega Man X Legacy Collection'));
 
     // ============================================================
-    // SE FOR O MEGA MAN X, USA APENAS O JSON (IGNORA STEAM)
+    // SE FOR O MEGA MAN X, USA JSON + FILTRO POR CONQUISTAS FALTANTES
     // ============================================================
     if (isMegaManX && conquestMappings) {
-      // Pega a lista de conquistas do JSON (todas as 53)
-      const conquistasJSON = Object.keys(conquestMappings).map(nome => ({
-        name: nome,
-        displayName: nome,
-        description: conquestMappings[nome].description || 'Sem descrição',
-        iconUrl: conquestMappings[nome].image || null
-      }));
+      // 1. Buscar conquistas já desbloqueadas do usuário (via Steam)
+      let desbloqueadas = [];
+      try {
+        const playerAch = await getPlayerAchievements(steamId, appid);
+        desbloqueadas = playerAch.filter(c => c.achieved === 1).map(c => c.apiname);
+      } catch (e) {
+        console.warn(`⚠️ Não foi possível buscar conquistas desbloqueadas: ${e.message}`);
+        // Se falhar, assume que não há nenhuma (mostra todas)
+        desbloqueadas = [];
+      }
 
-      // Ordena alfabeticamente (ou pode manter a ordem do JSON)
+      // 2. Pega a lista de conquistas do JSON e filtra as já desbloqueadas
+      const conquistasJSON = Object.keys(conquestMappings)
+        .filter(nome => !desbloqueadas.includes(nome)) // Só as faltantes
+        .map(nome => ({
+          name: nome,
+          displayName: nome,
+          description: conquestMappings[nome].description || 'Sem descrição',
+          iconUrl: conquestMappings[nome].image || null
+        }));
+
+      // 3. Ordena alfabeticamente
       conquistasJSON.sort((a, b) => a.name.localeCompare(b.name));
 
+      // 4. Se não houver conquistas faltantes
+      if (conquistasJSON.length === 0) {
+        await interaction.editReply(`🎉 Você já desbloqueou **todas** as conquistas de **${jogoInfo.nome}**!`);
+        return;
+      }
+
+      // 5. Paginação e exibição
       const totalPages = conquistasJSON.length;
       let currentPage = 0;
 
-      // Função para gerar a embed da conquista atual
       function generateEmbed(page) {
         const ach = conquistasJSON[page];
         const num = page + 1;
@@ -1371,7 +1390,7 @@ client.on('interactionCreate', async (interaction) => {
           .setDescription(ach.description)
           .addFields(
             { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
-            { name: '📊 Progresso', value: `${num}/${conquistasJSON.length} conquistas`, inline: true },
+            { name: '📊 Progresso', value: `${num}/${conquistasJSON.length} conquistas faltantes`, inline: true },
             { name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: false }
           )
           .setFooter({ text: `Conquista ${num} de ${conquistasJSON.length} • Use os botões para navegar` })
@@ -1483,7 +1502,7 @@ client.on('interactionCreate', async (interaction) => {
     // ============================================================
     // CASO NÃO SEJA O MEGA MAN X, USA O COMPORTAMENTO NORMAL (STEAM)
     // ============================================================
-    // Verificar se o usuário possui o jogo (para outros jogos)
+    // Verificar se o usuário possui o jogo
     const ownedGames = await getOwnedGames(steamId);
     const possui = ownedGames.some(g => g.appid === appid);
     if (!possui) {
