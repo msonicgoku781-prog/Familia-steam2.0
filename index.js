@@ -435,54 +435,49 @@ async function getAchievementDescription(appId, apiname) {
 }
 
 // ============================================================
-// 6.1 FUNÇÃO PARA BUSCAR ÍCONE DO TRUESTEAMACHIEVEMENTS
+// 6.1 FUNÇÃO PARA BAIXAR ÍCONE E CONVERTER PARA ANEXO
 // ============================================================
-async function getAchievementIconFromTrueSteam(appId, apiname) {
+async function downloadAchievementIcon(appId, apiname) {
   try {
-    // Primeiro tenta buscar do TrueSteamAchievements
-    const url = `https://api.truesteamachievements.com/api/v1/AchievementIcon/${appId}/${encodeURIComponent(apiname)}`;
-    const response = await axios.get(url, {
-      timeout: 5000,
-      headers: {
-        'User-Agent': 'SteamFamilyBot/2.0'
-      }
-    });
-    if (response.data && response.data.icon) {
-      return response.data.icon;
-    }
-  } catch (e) {
-    console.log(`⚠️ TrueSteamAchievements não retornou ícone para ${apiname}, tentando Steam...`);
-  }
-  
-  // Fallback: tenta o Steam
-  try {
+    // Primeiro tenta baixar do Steam
     const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
     const params = { key: STEAM_KEY, appid: appId, l: 'portuguese' };
     const data = await fetchSteam(url, params, 2);
+    
     if (data?.game?.availableGameStats?.achievements) {
       const ach = data.game.availableGameStats.achievements.find(a => a.name === apiname);
       if (ach && ach.icon) {
-        // Tenta algumas variações de URL
+        // Tenta várias URLs do Steam
         const urls = [
           `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`,
-          `https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`,
-          `https://steamuserimages-a.akamaihd.net/ugc/${ach.icon}`
+          `https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`
         ];
         
         for (const url of urls) {
           try {
-            const test = await axios.head(url, { timeout: 3000 });
-            if (test.status === 200) {
-              return url;
+            const response = await axios.get(url, { 
+              responseType: 'arraybuffer',
+              timeout: 5000,
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+              }
+            });
+            if (response.status === 200) {
+              // Criar um buffer da imagem
+              const buffer = Buffer.from(response.data, 'binary');
+              // Gerar nome único para o arquivo
+              const filename = `achievement_${appId}_${apiname.replace(/[^a-zA-Z0-9]/g, '_')}.jpg`;
+              return { buffer, filename };
             }
           } catch (_) {}
         }
       }
     }
   } catch (e) {
-    console.error(`❌ Erro ao buscar ícone do Steam para ${apiname}:`, e.message);
+    console.log(`⚠️ Erro ao baixar ícone para ${apiname}:`, e.message);
   }
   
+  // Se não conseguir, retorna null
   return null;
 }
 
@@ -1258,7 +1253,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM THUMBNAIL E PAGINAÇÃO)
+  // 🔥 COMANDO /conquista (COM THUMBNAIL E DOWNLOAD DE IMAGENS)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1318,39 +1313,41 @@ client.on('interactionCreate', async (interaction) => {
       desbloqueadas = [];
     }
 
-    // 6. Filtrar conquistas não desbloqueadas e buscar ícones
-    const faltantes = [];
-    for (const ach of conquistasSchema) {
-      if (!desbloqueadas.includes(ach.name)) {
-        // Buscar ícone do TrueSteamAchievements
-        let iconUrl = null;
-        try {
-          iconUrl = await getAchievementIconFromTrueSteam(appid, ach.name);
-        } catch (e) {
-          console.log(`⚠️ Erro ao buscar ícone para ${ach.name}:`, e.message);
-        }
-        
-        faltantes.push({
-          ...ach,
-          iconUrl: iconUrl
-        });
-      }
-    }
+    // 6. Filtrar conquistas não desbloqueadas
+    const faltantes = conquistasSchema
+      .filter(ach => !desbloqueadas.includes(ach.name));
 
     if (faltantes.length === 0) {
       await interaction.editReply(`🎉 Você já desbloqueou **todas** as conquistas de **${jogoInfo.nome}**!`);
       return;
     }
 
-    // 7. Paginação: 1 conquista por página (com thumbnail)
-    const ITEMS_PER_PAGE = 1;
+    // 7. Paginação: 1 conquista por página
     const totalPages = faltantes.length;
     let currentPage = 0;
 
-    // Função para gerar a embed da conquista atual
-    function generateAchievementEmbed(page) {
+    // Cache para imagens baixadas
+    const imageCache = new Map();
+
+    // Função para baixar e cachear a imagem
+    async function getAchievementImage(appId, apiname) {
+      const cacheKey = `${appId}_${apiname}`;
+      if (imageCache.has(cacheKey)) {
+        return imageCache.get(cacheKey);
+      }
+
+      const result = await downloadAchievementIcon(appId, apiname);
+      imageCache.set(cacheKey, result);
+      return result;
+    }
+
+    // Função para gerar a embed da conquista atual com imagem anexada
+    async function generateAchievementEmbedWithImage(page) {
       const ach = faltantes[page];
       const num = page + 1;
+      
+      // Tentar baixar a imagem
+      const imageData = await getAchievementImage(appid, ach.name);
       
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
@@ -1364,15 +1361,17 @@ client.on('interactionCreate', async (interaction) => {
         .setFooter({ text: `Conquista ${num} de ${faltantes.length} • Use os botões para navegar` })
         .setTimestamp();
 
-      // Adicionar o ícone como THUMBNAIL (imagem visível diretamente)
-      if (ach.iconUrl && ach.iconUrl.startsWith('http')) {
-        embed.setThumbnail(ach.iconUrl);
+      // Se conseguiu baixar a imagem, usar como thumbnail
+      if (imageData && imageData.buffer) {
+        // Criar um attachment temporário
+        const attachment = new AttachmentBuilder(imageData.buffer, { name: imageData.filename });
+        embed.setThumbnail(`attachment://${imageData.filename}`);
+        return { embed, attachment };
       } else {
-        // Ícone padrão se não tiver imagem
+        // Fallback: ícone padrão
         embed.setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png');
+        return { embed, attachment: null };
       }
-
-      return embed;
     }
 
     // Criar os botões de navegação
@@ -1390,10 +1389,15 @@ client.on('interactionCreate', async (interaction) => {
           .setDisabled(currentPage === totalPages - 1)
       );
 
+    // Gerar a primeira página com imagem
+    const firstPage = await generateAchievementEmbedWithImage(currentPage);
+    const files = firstPage.attachment ? [firstPage.attachment] : [];
+
     // Enviar a primeira conquista
     const reply = await interaction.editReply({
-      embeds: [generateAchievementEmbed(currentPage)],
-      components: [row]
+      embeds: [firstPage.embed],
+      components: [row],
+      files: files
     });
 
     // Armazenar a sessão para navegação
@@ -1406,7 +1410,8 @@ client.on('interactionCreate', async (interaction) => {
       messageId: reply.id,
       channelId: interaction.channel.id,
       jogoNome: jogoInfo.nome,
-      appid: appid
+      appid: appid,
+      imageCache: imageCache
     });
 
     // Criar collector para os botões
@@ -1460,10 +1465,15 @@ client.on('interactionCreate', async (interaction) => {
             .setDisabled(session.currentPage === session.totalPages - 1)
         );
 
-      // Atualizar a mensagem com a nova conquista
+      // Gerar a nova página com imagem
+      const pageData = await generateAchievementEmbedWithImage(session.currentPage);
+      const newFiles = pageData.attachment ? [pageData.attachment] : [];
+
+      // Atualizar a mensagem
       await buttonInteraction.update({
-        embeds: [generateAchievementEmbed(session.currentPage)],
-        components: [newRow]
+        embeds: [pageData.embed],
+        components: [newRow],
+        files: newFiles
       });
 
       // Atualizar sessão
