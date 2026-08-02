@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (ENVIO DE VÍDEO POR DM - 2 MENSAGENS)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (ENVIO DE VÍDEO POR DM - ORDEM CORRIGIDA)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1310,7 +1310,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM ENVIO DE VÍDEO POR DM - 2 MENSAGENS)
+  // 🔥 COMANDO /conquista (COM ENVIO DE VÍDEO POR DM - ORDEM CORRIGIDA)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1467,8 +1467,8 @@ client.on('interactionCreate', async (interaction) => {
         .setDescription(ach.description)
         .addFields(
           { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
-          { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true },
-          { name: '🔗 Link', value: videoLink ? `[Assistir no YouTube](${videoLink})` : `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: false }
+          { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true }
+          // campo "🔗 Link" REMOVIDO – vídeo já é enviado separadamente
         )
         .setFooter({ text: `Selecione outra conquista no menu abaixo` })
         .setTimestamp();
@@ -1565,14 +1565,14 @@ client.on('interactionCreate', async (interaction) => {
               .setStyle(ButtonStyle.Secondary)
           );
 
-        // Envia o vídeo na DM do usuário (com player)
+        // Envia o vídeo na DM do usuário (primeiro a embed, depois o link)
         try {
           const user = await client.users.fetch(i.user.id);
           if (videoLink) {
-            // 1ª mensagem: APENAS o link (ativa o player)
-            await user.send(videoLink);
-            // 2ª mensagem: embed com os detalhes
+            // 1ª mensagem: embed com os detalhes
             await user.send({ embeds: [embed] });
+            // 2ª mensagem: APENAS o link (ativa o player)
+            await user.send(videoLink);
           } else {
             // Se não tiver vídeo, envia apenas a embed
             await user.send({ embeds: [embed] });
