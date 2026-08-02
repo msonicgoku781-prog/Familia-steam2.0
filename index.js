@@ -439,7 +439,6 @@ async function getAchievementDescription(appId, apiname) {
 // ============================================================
 async function getAchievementImage(appId, apiname) {
   try {
-    // Busca o nome do ícone no schema
     const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
     const params = { key: STEAM_KEY, appid: appId, l: 'portuguese' };
     const data = await fetchSteam(url, params, 2);
@@ -449,7 +448,6 @@ async function getAchievementImage(appId, apiname) {
       if (ach && ach.icon) {
         const originalUrl = `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`;
         
-        // ESTRATÉGIA 1: Proxy (mais rápido)
         try {
           const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(originalUrl)}&w=200&h=200&fit=cover`;
           const test = await axios.head(proxyUrl, { timeout: 3000 });
@@ -458,7 +456,6 @@ async function getAchievementImage(appId, apiname) {
           }
         } catch (_) {}
 
-        // ESTRATÉGIA 2: Baixar diretamente com headers de navegador
         try {
           const response = await axios.get(originalUrl, {
             responseType: 'arraybuffer',
@@ -972,13 +969,26 @@ console.log('🚀 [12] Cliente Discord criado.');
 let conquestMappings = null;
 
 async function carregarMapeamentoConquistas() {
-  const channelId = '1525926566373363823'; // ID do canal #lista-quero
+  const channelId = '1525926566373363823';
   const channel = client.channels.cache.get(channelId);
   if (!channel) {
-    console.error('❌ Canal #lista-quero não encontrado!');
+    console.error('❌ Canal #lista-quero não encontrado na cache!');
+    try {
+      const fetched = await client.channels.fetch(channelId);
+      if (fetched) {
+        console.log('✅ Canal #lista-quero encontrado via fetch.');
+        // Tenta novamente com o canal obtido
+        return await carregarMapeamentoDoCanal(fetched);
+      }
+    } catch (e) {
+      console.error('❌ Falha ao buscar canal #lista-quero:', e.message);
+    }
     return null;
   }
+  return await carregarMapeamentoDoCanal(channel);
+}
 
+async function carregarMapeamentoDoCanal(channel) {
   try {
     const messages = await channel.messages.fetch({ limit: 50 });
     const msg = messages.find(m => 
@@ -986,16 +996,22 @@ async function carregarMapeamentoConquistas() {
       m.attachments.some(a => a.name === 'megaman_x_achievements.json')
     );
     if (!msg) {
-      console.warn('⚠️ Arquivo megaman_x_achievements.json não encontrado no canal #lista-quero.');
+      console.warn('⚠️ Nenhuma mensagem com o arquivo megaman_x_achievements.json encontrada.');
+      // Lista anexos para debug
+      messages.forEach(m => {
+        m.attachments.forEach(a => console.log(`📎 Anexo encontrado: ${a.name}`));
+      });
       return null;
     }
 
     const attachment = msg.attachments.find(a => a.name === 'megaman_x_achievements.json');
+    console.log(`📥 Baixando anexo de ${attachment.url}`);
     const response = await axios.get(attachment.url, { responseType: 'json' });
-    console.log(`✅ Mapeamento de conquistas carregado: ${Object.keys(response.data).length} conquistas`);
+    console.log(`✅ Mapeamento carregado: ${Object.keys(response.data).length} conquistas`);
     return response.data;
   } catch (e) {
-    console.error('❌ Erro ao carregar mapeamento de conquistas:', e);
+    console.error('❌ Erro ao carregar mapeamento:', e.message);
+    if (e.response) console.error('Status HTTP:', e.response.status);
     return null;
   }
 }
@@ -1044,6 +1060,11 @@ client.once('clientReady', async () => {
 
     // Carrega o mapeamento de conquistas do Mega Man X
     conquestMappings = await carregarMapeamentoConquistas();
+    if (conquestMappings) {
+      console.log(`✅ Mapeamento de conquistas do Mega Man X carregado com sucesso.`);
+    } else {
+      console.warn('⚠️ Mapeamento não carregado. As imagens personalizadas não serão usadas.');
+    }
 
     console.log('🔄 Registrando comandos...');
     try {
