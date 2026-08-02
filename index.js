@@ -435,11 +435,11 @@ async function getAchievementDescription(appId, apiname) {
 }
 
 // ============================================================
-// 6.1 FUNÇÃO PARA BAIXAR ÍCONE E CONVERTER PARA ANEXO
+// 6.1 FUNÇÃO PARA BAIXAR ÍCONE DA STEAM (COM MÚLTIPLAS TENTATIVAS)
 // ============================================================
 async function downloadAchievementIcon(appId, apiname) {
   try {
-    // Primeiro tenta baixar do Steam
+    // Primeiro, busca o nome do ícone no schema
     const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
     const params = { key: STEAM_KEY, appid: appId, l: 'portuguese' };
     const data = await fetchSteam(url, params, 2);
@@ -447,38 +447,44 @@ async function downloadAchievementIcon(appId, apiname) {
     if (data?.game?.availableGameStats?.achievements) {
       const ach = data.game.availableGameStats.achievements.find(a => a.name === apiname);
       if (ach && ach.icon) {
-        // Tenta várias URLs do Steam
+        // Lista de URLs para tentar (diferentes CDNs)
         const urls = [
           `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`,
-          `https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`
+          `https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`,
+          `https://steamuserimages-a.akamaihd.net/ugc/${ach.icon}` // fallback
         ];
         
-        for (const url of urls) {
+        // Headers para simular navegador
+        const headers = {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+          'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+          'Referer': 'https://store.steampowered.com/'
+        };
+        
+        for (const imageUrl of urls) {
           try {
-            const response = await axios.get(url, { 
+            const response = await axios.get(imageUrl, { 
               responseType: 'arraybuffer',
-              timeout: 5000,
-              headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-              }
+              timeout: 8000,
+              headers: headers
             });
-            if (response.status === 200) {
-              // Criar um buffer da imagem
-              const buffer = Buffer.from(response.data, 'binary');
-              // Gerar nome único para o arquivo
+            if (response.status === 200 && response.data && response.data.length > 100) {
+              const buffer = Buffer.from(response.data);
               const filename = `achievement_${appId}_${apiname.replace(/[^a-zA-Z0-9]/g, '_')}.jpg`;
               return { buffer, filename };
             }
-          } catch (_) {}
+          } catch (_) {
+            continue; // Tenta a próxima URL
+          }
         }
       }
     }
   } catch (e) {
-    console.log(`⚠️ Erro ao baixar ícone para ${apiname}:`, e.message);
+    console.log(`⚠️ Erro ao buscar ícone para ${apiname}:`, e.message);
   }
   
-  // Se não conseguir, retorna null
-  return null;
+  return null; // Não conseguiu baixar
 }
 
 console.log('🚀 [8] Funções da Steam API carregadas.');
@@ -1253,7 +1259,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM THUMBNAIL E DOWNLOAD DE IMAGENS)
+  // 🔥 COMANDO /conquista (COM DOWNLOAD DE IMAGENS DA STEAM)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1363,7 +1369,6 @@ client.on('interactionCreate', async (interaction) => {
 
       // Se conseguiu baixar a imagem, usar como thumbnail
       if (imageData && imageData.buffer) {
-        // Criar um attachment temporário
         const attachment = new AttachmentBuilder(imageData.buffer, { name: imageData.filename });
         embed.setThumbnail(`attachment://${imageData.filename}`);
         return { embed, attachment };
