@@ -436,14 +436,13 @@ async function getAchievementDescription(appId, apiname) {
 }
 
 // ============================================================
-// 6.2 FUNÇÃO DE TRADUÇÃO (MyMemory API)
+// 6.2 FUNÇÃO DE TRADUÇÃO (MyMemory API) - COM VALIDAÇÃO
 // ============================================================
 const translationCache = new Map();
 
 async function traduzirTexto(texto, targetLang = 'pt') {
   if (!texto || texto.length < 3) return texto;
   // Se o texto já estiver em português (detecção simples: caracteres acentuados comuns), evita traduzir
-  // Ou se o texto contiver muitas palavras em português (heurística)
   const palavras = texto.split(' ');
   let acentos = 0;
   for (const palavra of palavras) {
@@ -465,10 +464,14 @@ async function traduzirTexto(texto, targetLang = 'pt') {
       },
       timeout: 5000
     });
+    // Verifica se a resposta contém erro ou mensagem inválida
     if (response.data && response.data.responseData && response.data.responseData.translatedText) {
       const traduzido = response.data.responseData.translatedText;
-      translationCache.set(cacheKey, traduzido);
-      return traduzido;
+      // Verifica se a tradução não é uma mensagem de erro (como "INVALID EMAIL PROVIDED")
+      if (!traduzido.includes('INVALID') && !traduzido.includes('ERROR')) {
+        translationCache.set(cacheKey, traduzido);
+        return traduzido;
+      }
     }
   } catch (e) {
     console.error('❌ Erro ao traduzir texto:', e.message);
@@ -1509,6 +1512,10 @@ client.on('interactionCreate', async (interaction) => {
       let descricao = ach.description || 'Sem descrição';
       if (!isMegaManX) {
         descricao = await traduzirTexto(descricao);
+        // Se a tradução falhou e retornou uma mensagem de erro, mantém o original
+        if (descricao.includes('INVALID') || descricao.includes('ERROR')) {
+          descricao = ach.description || 'Sem descrição';
+        }
       }
 
       const embed = new EmbedBuilder()
