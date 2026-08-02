@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (MENU INTERATIVO)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (MENU INTERATIVO + VÍDEO)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -24,13 +24,14 @@ const {
   ACHIEVEMENT_CHANNEL_ID,
   QUERO_CHANNEL_ID,
   RULES_CHANNEL_ID,
-  DONO_ID
+  DONO_ID,
+  YOUTUBE_API_KEY
 } = process.env;
 
 console.log('🚀 [3] Variáveis lidas.');
 console.log(`📌 DISCORD_TOKEN presente: ${DISCORD_TOKEN ? 'SIM' : 'NÃO'}`);
 console.log(`📌 QUERO_CHANNEL_ID: ${QUERO_CHANNEL_ID || 'NÃO DEFINIDO'}`);
-console.log(`📌 RULES_CHANNEL_ID: ${RULES_CHANNEL_ID || 'NÃO DEFINIDO'}`);
+console.log(`📌 YOUTUBE_API_KEY presente: ${YOUTUBE_API_KEY ? 'SIM' : 'NÃO'}`);
 
 if (!DISCORD_TOKEN || !STEAM_KEY || !STEAM_IDS || !CHANNEL_ID || !QUERO_CHANNEL_ID || !RULES_CHANNEL_ID) {
   console.error('❌ Variáveis obrigatórias ausentes. Verifique .env');
@@ -1309,7 +1310,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM MENU INTERATIVO)
+  // 🔥 COMANDO /conquista (COM MENU INTERATIVO + VÍDEO PLAYER)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1421,33 +1422,74 @@ client.on('interactionCreate', async (interaction) => {
     totalConquistas = conquistasList.length;
 
     // ============================================================
+    // FUNÇÃO PARA BUSCAR VÍDEO NO YOUTUBE (USANDO API)
+    // ============================================================
+    async function buscarVideoYouTube(nomeConquista) {
+      if (!YOUTUBE_API_KEY) {
+        return null; // Sem chave, não busca
+      }
+      try {
+        const searchQuery = `Mega Man X Legacy Collection ${encodeURIComponent(nomeConquista)}`;
+        const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+          params: {
+            part: 'snippet',
+            type: 'video',
+            maxResults: 1,
+            q: searchQuery,
+            key: YOUTUBE_API_KEY
+          },
+          timeout: 5000
+        });
+        const videoId = response.data.items?.[0]?.id?.videoId;
+        if (videoId) {
+          return `https://www.youtube.com/watch?v=${videoId}`;
+        }
+        return null;
+      } catch (e) {
+        console.error('Erro ao buscar vídeo no YouTube:', e.message);
+        return null;
+      }
+    }
+
+    // ============================================================
     // FUNÇÕES PARA GERAR O MENU E AS EMBEDS
     // ============================================================
     const ITEMS_PER_PAGE = 25;
     let currentPage = 0;
 
     // Função para gerar a embed da conquista selecionada
-    function generateAchievementEmbed(ach) {
+    async function generateAchievementEmbed(ach) {
+      // Buscar vídeo automaticamente (se tiver chave da API)
+      let videoLink = null;
+      if (YOUTUBE_API_KEY) {
+        videoLink = await buscarVideoYouTube(ach.displayName);
+      }
+
+      // Fallback: link da Steam
+      const url = videoLink || `https://store.steampowered.com/app/${appid}`;
+
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
         .setTitle(`🏆 ${ach.displayName}`)
+        .setURL(url) // <<< VÍDEO APARECE COMO PLAYER AQUI
         .setDescription(ach.description)
         .addFields(
           { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
           { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true },
-          { name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: false }
+          { name: '🔗 Link', value: videoLink ? `[Assistir no YouTube](${videoLink})` : `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: false }
         )
         .setFooter({ text: `Selecione outra conquista no menu abaixo` })
         .setTimestamp();
 
-      // Imagem personalizada (para Mega Man X) ou busca da Steam
+      // Imagem personalizada (para Mega Man X)
       if (ach.iconUrl) {
         embed.setThumbnail(ach.iconUrl);
       } else {
-        // Fallback: tenta buscar imagem da Steam (apenas para outros jogos)
+        // Fallback: logo da Steam
         embed.setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png');
       }
-      return embed;
+
+      return { embed, attachment: null };
     }
 
     // Função para gerar o Select Menu com as conquistas da página atual
@@ -1521,8 +1563,8 @@ client.on('interactionCreate', async (interaction) => {
         const selectedIndex = parseInt(i.values[0]);
         const ach = conquistasList[selectedIndex];
 
-        // Embed da conquista
-        const embed = generateAchievementEmbed(ach);
+        // Embed da conquista (com vídeo)
+        const { embed } = await generateAchievementEmbed(ach);
 
         // Botão para voltar à lista
         const backButton = new ActionRowBuilder()
@@ -1583,7 +1625,6 @@ client.on('interactionCreate', async (interaction) => {
     });
 
     collector.on('end', async () => {
-      // Remove os botões após expirar
       try {
         const channel = client.channels.cache.get(interaction.channel.id);
         if (channel) {
