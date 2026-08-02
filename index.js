@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (BOTÃO PARA VÍDEO NA DM)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (BOTÃO PARA VÍDEO NA DM - APENAS MEGA MAN X)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1312,7 +1312,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM BOTÃO PARA VÍDEO NA DM)
+  // 🔥 COMANDO /conquista (BOTÃO APENAS PARA MEGA MAN X)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1470,7 +1470,7 @@ client.on('interactionCreate', async (interaction) => {
         .addFields(
           { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
           { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true }
-          // O campo de vídeo foi removido da embed – será substituído por um botão
+          // O campo de vídeo foi removido da embed – será substituído por um botão (apenas para Mega Man X)
         )
         .setFooter({ text: `Selecione outra conquista no menu abaixo` })
         .setTimestamp();
@@ -1567,40 +1567,36 @@ client.on('interactionCreate', async (interaction) => {
               .setStyle(ButtonStyle.Secondary)
           );
 
-        // Envia a embed na DM com um botão para o vídeo
+        // Envia a embed na DM – com botão de vídeo APENAS para Mega Man X
         try {
           const user = await client.users.fetch(i.user.id);
 
-          // Cria o botão para solicitar o vídeo
-          const videoButton = new ActionRowBuilder()
-            .addComponents(
-              new ButtonBuilder()
-                .setCustomId(`video_${i.user.id}_${ach.name.slice(0, 20)}`)
-                .setLabel('🎬 Ver vídeo guia')
-                .setStyle(ButtonStyle.Primary)
-            );
+          // Cria os componentes (backButton + videoButton, se for Mega Man X)
+          const components = [backButton];
 
-          // Salva o link do vídeo no mapa global
-          if (videoLink) {
+          // 🔥 BOTÃO DE VÍDEO APENAS PARA MEGA MAN X E SE HOUVER LINK
+          if (isMegaManX && videoLink) {
+            const videoButton = new ActionRowBuilder()
+              .addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`video_${i.user.id}_${ach.name.slice(0, 20)}`)
+                  .setLabel('🎬 Ver vídeo guia')
+                  .setStyle(ButtonStyle.Primary)
+              );
+            components.push(videoButton);
+            // Salva o link do vídeo no mapa global
             videoLinksMap.set(`video_${i.user.id}_${ach.name.slice(0, 20)}`, videoLink);
           }
 
-          // Envia a mensagem com a embed e o botão
-          if (videoLink) {
-            await user.send({
-              embeds: [embed],
-              components: [videoButton]
-            });
-          } else {
-            // Se não tiver vídeo, envia apenas a embed (sem botão)
-            await user.send({
-              embeds: [embed]
-            });
-          }
+          // Envia a mensagem com a embed e os componentes
+          await user.send({
+            embeds: [embed],
+            components: components
+          });
 
           // Atualiza a mensagem efêmera no canal para confirmar o envio
           await i.update({
-            content: `✅ **Detalhes da conquista "${ach.displayName}" enviados na sua DM!** Clique no botão para assistir ao vídeo.`,
+            content: `✅ **Detalhes da conquista "${ach.displayName}" enviados na sua DM!** ${isMegaManX && videoLink ? 'Clique no botão para assistir ao vídeo.' : ''}`,
             embeds: [],
             components: [backButton]
           });
@@ -1697,8 +1693,6 @@ client.on('interactionCreate', async (interaction) => {
         content: videoLink,
         ephemeral: false // Envia como mensagem normal (não efêmera) para ativar o player
       });
-      // Opcional: remove o botão ou desabilita
-      // await interaction.message.edit({ components: [] });
     } catch (err) {
       console.error('Erro ao enviar vídeo:', err);
       await interaction.reply({
