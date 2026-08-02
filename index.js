@@ -1331,7 +1331,7 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    // 2. Buscar o jogo na Steam pelo nome
+    // 2. Buscar o jogo na Steam pelo nome (apenas para identificar)
     const jogoInfo = await searchGameOnSteam(nomeJogoInput);
     if (!jogoInfo) {
       await interaction.editReply(`❌ Não encontrei o jogo **${nomeJogoInput}** na Steam.`);
@@ -1339,7 +1339,151 @@ client.on('interactionCreate', async (interaction) => {
     }
     const appid = jogoInfo.appid;
 
-    // 3. Verificar se o usuário possui o jogo
+    // 3. Verifica se é o Mega Man X Legacy Collection (por appid OU pelo nome)
+    const isMegaManX = (appid === 743890 || jogoInfo.nome.includes('Mega Man X Legacy Collection'));
+
+    // ============================================================
+    // SE FOR O MEGA MAN X, USA APENAS O JSON (IGNORA STEAM)
+    // ============================================================
+    if (isMegaManX && conquestMappings) {
+      // Pega a lista de conquistas do JSON (todas as 53)
+      const conquistasJSON = Object.keys(conquestMappings).map(nome => ({
+        name: nome,
+        displayName: nome,
+        description: conquestMappings[nome].description || 'Sem descrição',
+        iconUrl: conquestMappings[nome].image || null
+      }));
+
+      // Ordena alfabeticamente (ou pode manter a ordem do JSON)
+      conquistasJSON.sort((a, b) => a.name.localeCompare(b.name));
+
+      const totalPages = conquistasJSON.length;
+      let currentPage = 0;
+
+      // Função para gerar a embed da conquista atual
+      function generateEmbed(page) {
+        const ach = conquistasJSON[page];
+        const num = page + 1;
+
+        const embed = new EmbedBuilder()
+          .setColor(0xFFD700)
+          .setTitle(`🏆 ${num}. ${ach.displayName}`)
+          .setDescription(ach.description)
+          .addFields(
+            { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
+            { name: '📊 Progresso', value: `${num}/${conquistasJSON.length} conquistas`, inline: true },
+            { name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: false }
+          )
+          .setFooter({ text: `Conquista ${num} de ${conquistasJSON.length} • Use os botões para navegar` })
+          .setTimestamp();
+
+        if (ach.iconUrl) {
+          embed.setThumbnail(ach.iconUrl);
+        } else {
+          embed.setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png');
+        }
+
+        return { embed, attachment: null };
+      }
+
+      // Botões de navegação
+      const row = new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId('prev_achievement')
+            .setLabel('◀️ Anterior')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(currentPage === 0),
+          new ButtonBuilder()
+            .setCustomId('next_achievement')
+            .setLabel('Próxima ▶️')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(currentPage === totalPages - 1)
+        );
+
+      const firstPage = generateEmbed(currentPage);
+      const reply = await interaction.editReply({
+        embeds: [firstPage.embed],
+        components: [row]
+      });
+
+      // Sessão para navegação
+      const sessionId = `${interaction.user.id}_${interaction.id}`;
+      activeAchievementSessions.set(sessionId, {
+        userId: interaction.user.id,
+        conquistas: conquistasJSON,
+        currentPage: currentPage,
+        totalPages: totalPages,
+        messageId: reply.id,
+        channelId: interaction.channel.id,
+        generateEmbed: generateEmbed
+      });
+
+      // Collector para os botões
+      const filter = i => i.customId === 'prev_achievement' || i.customId === 'next_achievement';
+      const collector = interaction.channel.createMessageComponentCollector({ filter, time: 120000 });
+
+      collector.on('collect', async (buttonInteraction) => {
+        if (buttonInteraction.user.id !== interaction.user.id) {
+          await buttonInteraction.reply({ content: '❌ Apenas o usuário que solicitou pode navegar.', ephemeral: true });
+          return;
+        }
+
+        const session = activeAchievementSessions.get(sessionId);
+        if (!session) {
+          await buttonInteraction.reply({ content: '❌ Sessão expirada. Use /conquista novamente.', ephemeral: true });
+          return;
+        }
+
+        if (buttonInteraction.customId === 'prev_achievement' && session.currentPage > 0) {
+          session.currentPage--;
+        } else if (buttonInteraction.customId === 'next_achievement' && session.currentPage < session.totalPages - 1) {
+          session.currentPage++;
+        }
+
+        const newRow = new ActionRowBuilder()
+          .addComponents(
+            new ButtonBuilder()
+              .setCustomId('prev_achievement')
+              .setLabel('◀️ Anterior')
+              .setStyle(ButtonStyle.Primary)
+              .setDisabled(session.currentPage === 0),
+            new ButtonBuilder()
+              .setCustomId('next_achievement')
+              .setLabel('Próxima ▶️')
+              .setStyle(ButtonStyle.Primary)
+              .setDisabled(session.currentPage === session.totalPages - 1)
+          );
+
+        const pageData = session.generateEmbed(session.currentPage);
+        await buttonInteraction.update({
+          embeds: [pageData.embed],
+          components: [newRow]
+        });
+
+        activeAchievementSessions.set(sessionId, session);
+      });
+
+      collector.on('end', async () => {
+        try {
+          const channel = client.channels.cache.get(interaction.channel.id);
+          if (channel) {
+            const msg = await channel.messages.fetch(reply.id).catch(() => null);
+            if (msg) {
+              await msg.edit({ components: [] }).catch(() => {});
+            }
+          }
+        } catch (_) {}
+        activeAchievementSessions.delete(sessionId);
+      });
+
+      return; // Sai do comando, não executa o resto
+    }
+
+    // ============================================================
+    // CASO NÃO SEJA O MEGA MAN X, USA O COMPORTAMENTO NORMAL (STEAM)
+    // ============================================================
+    // Verificar se o usuário possui o jogo (para outros jogos)
     const ownedGames = await getOwnedGames(steamId);
     const possui = ownedGames.some(g => g.appid === appid);
     if (!possui) {
@@ -1347,7 +1491,7 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    // 4. Buscar o esquema completo do jogo (conquistas)
+    // Buscar o esquema completo do jogo (conquistas)
     let schemaData;
     try {
       const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
@@ -1363,7 +1507,7 @@ client.on('interactionCreate', async (interaction) => {
     }
     const conquistasSchema = schemaData.game.availableGameStats.achievements;
 
-    // 5. Buscar conquistas já desbloqueadas do usuário
+    // Buscar conquistas já desbloqueadas do usuário
     let desbloqueadas = [];
     try {
       const playerAch = await getPlayerAchievements(steamId, appid);
@@ -1372,7 +1516,7 @@ client.on('interactionCreate', async (interaction) => {
       desbloqueadas = [];
     }
 
-    // 6. Filtrar conquistas não desbloqueadas
+    // Filtrar conquistas não desbloqueadas
     const faltantes = conquistasSchema.filter(ach => !desbloqueadas.includes(ach.name));
 
     if (faltantes.length === 0) {
@@ -1380,24 +1524,10 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    // 7. Verifica se é o Mega Man X Legacy Collection (por appid OU pelo nome)
-    const isMegaManX = (appid === 743890 || jogoInfo.nome.includes('Mega Man X Legacy Collection'));
-
-    // 8. Aplica mapeamento personalizado se disponível
-    const faltantesComMapeamento = faltantes.map(ach => {
-      const mapeado = (isMegaManX && conquestMappings && conquestMappings[ach.name]) ? conquestMappings[ach.name] : null;
-      return {
-        ...ach,
-        customDescription: mapeado ? mapeado.description : null,
-        customImage: mapeado ? mapeado.image : null
-      };
-    });
-
-    // 9. Paginação: 1 conquista por página
-    const totalPages = faltantesComMapeamento.length;
+    // Paginação e exibição normal (para outros jogos)
+    const totalPages = faltantes.length;
     let currentPage = 0;
 
-    // Cache para imagens baixadas (fallback)
     const imageCache = new Map();
 
     async function getAchievementImageData(appId, apiname) {
@@ -1408,33 +1538,22 @@ client.on('interactionCreate', async (interaction) => {
       return result;
     }
 
-    // Função para gerar a embed da conquista atual
     async function generateAchievementEmbed(page) {
-      const ach = faltantesComMapeamento[page];
+      const ach = faltantes[page];
       const num = page + 1;
-
-      // Descrição: personalizada ou original
-      const desc = ach.customDescription || ach.description || 'Sem descrição';
 
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
         .setTitle(`🏆 ${num}. ${ach.displayName || ach.name}`)
-        .setDescription(desc)
+        .setDescription(ach.description || 'Sem descrição')
         .addFields(
           { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
-          { name: '📊 Progresso', value: `${num}/${faltantesComMapeamento.length} conquistas faltantes`, inline: true },
+          { name: '📊 Progresso', value: `${num}/${faltantes.length} conquistas faltantes`, inline: true },
           { name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: false }
         )
-        .setFooter({ text: `Conquista ${num} de ${faltantesComMapeamento.length} • Use os botões para navegar` })
+        .setFooter({ text: `Conquista ${num} de ${faltantes.length} • Use os botões para navegar` })
         .setTimestamp();
 
-      // Imagem personalizada (prioridade máxima)
-      if (ach.customImage) {
-        embed.setThumbnail(ach.customImage);
-        return { embed, attachment: null };
-      }
-
-      // Fallback: tenta proxy/download (apenas para outros jogos ou se não houver mapeamento)
       const imageData = await getAchievementImageData(appid, ach.name);
       if (imageData) {
         if (imageData.type === 'url') {
@@ -1447,12 +1566,10 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // Fallback final: logo da Steam
       embed.setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png');
       return { embed, attachment: null };
     }
 
-    // Criar os botões de navegação
     const row = new ActionRowBuilder()
       .addComponents(
         new ButtonBuilder()
@@ -1467,7 +1584,6 @@ client.on('interactionCreate', async (interaction) => {
           .setDisabled(currentPage === totalPages - 1)
       );
 
-    // Gerar a primeira página
     const firstPage = await generateAchievementEmbed(currentPage);
     const files = firstPage.attachment ? [firstPage.attachment] : [];
 
@@ -1477,11 +1593,10 @@ client.on('interactionCreate', async (interaction) => {
       files: files
     });
 
-    // Armazenar sessão
     const sessionId = `${interaction.user.id}_${interaction.id}`;
     activeAchievementSessions.set(sessionId, {
       userId: interaction.user.id,
-      faltantes: faltantesComMapeamento,
+      faltantes: faltantes,
       currentPage: currentPage,
       totalPages: totalPages,
       messageId: reply.id,
@@ -1490,7 +1605,6 @@ client.on('interactionCreate', async (interaction) => {
       generateEmbed: generateAchievementEmbed
     });
 
-    // Collector para os botões
     const filter = i => i.customId === 'prev_achievement' || i.customId === 'next_achievement';
     const collector = interaction.channel.createMessageComponentCollector({ filter, time: 120000 });
 
