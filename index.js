@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (MENU INTERATIVO + VÍDEO PLAYER)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (ENVIO DE VÍDEO POR DM)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1310,7 +1310,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM MENU INTERATIVO + VÍDEO PLAYER)
+  // 🔥 COMANDO /conquista (COM ENVIO DE VÍDEO POR DM)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1366,7 +1366,7 @@ client.on('interactionCreate', async (interaction) => {
           displayName: nome,
           description: conquestMappings[nome].description || 'Sem descrição',
           iconUrl: conquestMappings[nome].image || null,
-          video: conquestMappings[nome].video || null // Campo video do JSON
+          video: conquestMappings[nome].video || null
         }));
       conquistasList.sort((a, b) => a.name.localeCompare(b.name));
     } else {
@@ -1463,7 +1463,7 @@ client.on('interactionCreate', async (interaction) => {
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
         .setTitle(`🏆 ${ach.displayName}`)
-        .setURL(url) // Link para tornar o título clicável
+        .setURL(url)
         .setDescription(ach.description)
         .addFields(
           { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
@@ -1473,7 +1473,6 @@ client.on('interactionCreate', async (interaction) => {
         .setFooter({ text: `Selecione outra conquista no menu abaixo` })
         .setTimestamp();
 
-      // Imagem personalizada (para Mega Man X)
       if (ach.iconUrl) {
         embed.setThumbnail(ach.iconUrl);
       } else {
@@ -1554,7 +1553,7 @@ client.on('interactionCreate', async (interaction) => {
         const selectedIndex = parseInt(i.values[0]);
         const ach = conquistasList[selectedIndex];
 
-        // Embed da conquista (com vídeo)
+        // Gerar embed e link do vídeo
         const { embed, videoLink } = await generateAchievementEmbed(ach);
 
         // Botão para voltar à lista
@@ -1566,12 +1565,35 @@ client.on('interactionCreate', async (interaction) => {
               .setStyle(ButtonStyle.Secondary)
           );
 
-        // GAMBIARRA: envia o link no content para ativar o player
-        await i.update({
-          content: videoLink ? `🎬 **Assista ao vídeo:** ${videoLink}` : null,
-          embeds: [embed],
-          components: [backButton]
-        });
+        // Envia o vídeo na DM do usuário (com player)
+        try {
+          const user = await client.users.fetch(i.user.id);
+          if (videoLink) {
+            // Envia uma mensagem privada com o link no content (ativa o player)
+            await user.send({
+              content: `🎬 **Vídeo da conquista:** ${videoLink}`,
+              embeds: [embed]
+            });
+          } else {
+            // Se não tiver vídeo, envia apenas a embed
+            await user.send({
+              embeds: [embed]
+            });
+          }
+          // Atualiza a mensagem efêmera no canal para confirmar o envio
+          await i.update({
+            content: `✅ **Vídeo da conquista "${ach.displayName}" enviado na sua DM!**`,
+            embeds: [],
+            components: [backButton]
+          });
+        } catch (err) {
+          console.error('Erro ao enviar DM:', err);
+          await i.update({
+            content: `❌ **Não foi possível enviar a DM.** Verifique se você permite mensagens de servidores.`,
+            embeds: [],
+            components: [backButton]
+          });
+        }
         return;
       }
 
@@ -1588,7 +1610,7 @@ client.on('interactionCreate', async (interaction) => {
         const buttonRow = generatePaginationButtons(currentPage);
 
         await i.update({
-          content: null, // Remove o vídeo ao voltar para a lista
+          content: null,
           embeds: [embed],
           components: [selectRow, buttonRow]
         });
@@ -1611,7 +1633,7 @@ client.on('interactionCreate', async (interaction) => {
         const buttonRow = generatePaginationButtons(currentPage);
 
         await i.update({
-          content: null, // Remove vídeo ao mudar de página
+          content: null,
           embeds: [embed],
           components: [selectRow, buttonRow]
         });
