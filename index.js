@@ -1467,8 +1467,9 @@ client.on('interactionCreate', async (interaction) => {
         .setDescription(ach.description)
         .addFields(
           { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
-          { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true }
-          // campo "🔗 Link" REMOVIDO – vídeo já é enviado separadamente
+          { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true },
+          // Campo alterado para "🎬 Ver vídeo guia"
+          { name: '🎬 Ver vídeo guia', value: videoLink ? `[Clique aqui](${videoLink})` : `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: false }
         )
         .setFooter({ text: `Selecione outra conquista no menu abaixo` })
         .setTimestamp();
