@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (ENVIO DE VÍDEO POR DM - CORRIGIDO)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (ENVIO DE VÍDEO POR DM - 2 MENSAGENS)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1310,7 +1310,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM ENVIO DE VÍDEO POR DM - CORRIGIDO)
+  // 🔥 COMANDO /conquista (COM ENVIO DE VÍDEO POR DM - 2 MENSAGENS)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1569,16 +1569,13 @@ client.on('interactionCreate', async (interaction) => {
         try {
           const user = await client.users.fetch(i.user.id);
           if (videoLink) {
-            // CORREÇÃO: content é APENAS o link (sem texto extra) para ativar o player
-            await user.send({
-              content: videoLink,
-              embeds: [embed]
-            });
+            // 1ª mensagem: APENAS o link (ativa o player)
+            await user.send(videoLink);
+            // 2ª mensagem: embed com os detalhes
+            await user.send({ embeds: [embed] });
           } else {
             // Se não tiver vídeo, envia apenas a embed
-            await user.send({
-              embeds: [embed]
-            });
+            await user.send({ embeds: [embed] });
           }
           // Atualiza a mensagem efêmera no canal para confirmar o envio
           await i.update({
