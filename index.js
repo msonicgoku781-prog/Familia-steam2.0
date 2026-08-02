@@ -435,11 +435,11 @@ async function getAchievementDescription(appId, apiname) {
 }
 
 // ============================================================
-// 6.1 FUNÇÃO PARA BAIXAR ÍCONE DA STEAM (COM MÚLTIPLAS TENTATIVAS)
+// 6.1 FUNÇÃO PARA OBTER URL DO ÍCONE COM PROXY
 // ============================================================
-async function downloadAchievementIcon(appId, apiname) {
+async function getAchievementIconUrl(appId, apiname) {
   try {
-    // Primeiro, busca o nome do ícone no schema
+    // Busca o nome do ícone no schema
     const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
     const params = { key: STEAM_KEY, appid: appId, l: 'portuguese' };
     const data = await fetchSteam(url, params, 2);
@@ -447,44 +447,17 @@ async function downloadAchievementIcon(appId, apiname) {
     if (data?.game?.availableGameStats?.achievements) {
       const ach = data.game.availableGameStats.achievements.find(a => a.name === apiname);
       if (ach && ach.icon) {
-        // Lista de URLs para tentar (diferentes CDNs)
-        const urls = [
-          `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`,
-          `https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`,
-          `https://steamuserimages-a.akamaihd.net/ugc/${ach.icon}` // fallback
-        ];
-        
-        // Headers para simular navegador
-        const headers = {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-          'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-          'Referer': 'https://store.steampowered.com/'
-        };
-        
-        for (const imageUrl of urls) {
-          try {
-            const response = await axios.get(imageUrl, { 
-              responseType: 'arraybuffer',
-              timeout: 8000,
-              headers: headers
-            });
-            if (response.status === 200 && response.data && response.data.length > 100) {
-              const buffer = Buffer.from(response.data);
-              const filename = `achievement_${appId}_${apiname.replace(/[^a-zA-Z0-9]/g, '_')}.jpg`;
-              return { buffer, filename };
-            }
-          } catch (_) {
-            continue; // Tenta a próxima URL
-          }
-        }
+        // URL original da Steam
+        const originalUrl = `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`;
+        // Usar proxy para contornar bloqueios
+        const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(originalUrl)}&w=200&h=200&fit=cover`;
+        return proxyUrl;
       }
     }
   } catch (e) {
     console.log(`⚠️ Erro ao buscar ícone para ${apiname}:`, e.message);
   }
-  
-  return null; // Não conseguiu baixar
+  return null;
 }
 
 console.log('🚀 [8] Funções da Steam API carregadas.');
@@ -1259,7 +1232,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM DOWNLOAD DE IMAGENS DA STEAM)
+  // 🔥 COMANDO /conquista (COM PROXY DE IMAGENS)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1319,9 +1292,17 @@ client.on('interactionCreate', async (interaction) => {
       desbloqueadas = [];
     }
 
-    // 6. Filtrar conquistas não desbloqueadas
-    const faltantes = conquistasSchema
-      .filter(ach => !desbloqueadas.includes(ach.name));
+    // 6. Filtrar conquistas não desbloqueadas e buscar URLs com proxy
+    const faltantes = [];
+    for (const ach of conquistasSchema) {
+      if (!desbloqueadas.includes(ach.name)) {
+        const iconUrl = await getAchievementIconUrl(appid, ach.name);
+        faltantes.push({
+          ...ach,
+          iconUrl: iconUrl
+        });
+      }
+    }
 
     if (faltantes.length === 0) {
       await interaction.editReply(`🎉 Você já desbloqueou **todas** as conquistas de **${jogoInfo.nome}**!`);
@@ -1332,28 +1313,10 @@ client.on('interactionCreate', async (interaction) => {
     const totalPages = faltantes.length;
     let currentPage = 0;
 
-    // Cache para imagens baixadas
-    const imageCache = new Map();
-
-    // Função para baixar e cachear a imagem
-    async function getAchievementImage(appId, apiname) {
-      const cacheKey = `${appId}_${apiname}`;
-      if (imageCache.has(cacheKey)) {
-        return imageCache.get(cacheKey);
-      }
-
-      const result = await downloadAchievementIcon(appId, apiname);
-      imageCache.set(cacheKey, result);
-      return result;
-    }
-
-    // Função para gerar a embed da conquista atual com imagem anexada
-    async function generateAchievementEmbedWithImage(page) {
+    // Função para gerar a embed da conquista atual
+    function generateAchievementEmbed(page) {
       const ach = faltantes[page];
       const num = page + 1;
-      
-      // Tentar baixar a imagem
-      const imageData = await getAchievementImage(appid, ach.name);
       
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
@@ -1367,16 +1330,15 @@ client.on('interactionCreate', async (interaction) => {
         .setFooter({ text: `Conquista ${num} de ${faltantes.length} • Use os botões para navegar` })
         .setTimestamp();
 
-      // Se conseguiu baixar a imagem, usar como thumbnail
-      if (imageData && imageData.buffer) {
-        const attachment = new AttachmentBuilder(imageData.buffer, { name: imageData.filename });
-        embed.setThumbnail(`attachment://${imageData.filename}`);
-        return { embed, attachment };
+      // Usar a URL com proxy como thumbnail
+      if (ach.iconUrl) {
+        embed.setThumbnail(ach.iconUrl);
       } else {
-        // Fallback: ícone padrão
+        // Fallback: logo da Steam
         embed.setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png');
-        return { embed, attachment: null };
       }
+
+      return embed;
     }
 
     // Criar os botões de navegação
@@ -1394,15 +1356,10 @@ client.on('interactionCreate', async (interaction) => {
           .setDisabled(currentPage === totalPages - 1)
       );
 
-    // Gerar a primeira página com imagem
-    const firstPage = await generateAchievementEmbedWithImage(currentPage);
-    const files = firstPage.attachment ? [firstPage.attachment] : [];
-
     // Enviar a primeira conquista
     const reply = await interaction.editReply({
-      embeds: [firstPage.embed],
-      components: [row],
-      files: files
+      embeds: [generateAchievementEmbed(currentPage)],
+      components: [row]
     });
 
     // Armazenar a sessão para navegação
@@ -1415,8 +1372,7 @@ client.on('interactionCreate', async (interaction) => {
       messageId: reply.id,
       channelId: interaction.channel.id,
       jogoNome: jogoInfo.nome,
-      appid: appid,
-      imageCache: imageCache
+      appid: appid
     });
 
     // Criar collector para os botões
@@ -1470,15 +1426,10 @@ client.on('interactionCreate', async (interaction) => {
             .setDisabled(session.currentPage === session.totalPages - 1)
         );
 
-      // Gerar a nova página com imagem
-      const pageData = await generateAchievementEmbedWithImage(session.currentPage);
-      const newFiles = pageData.attachment ? [pageData.attachment] : [];
-
-      // Atualizar a mensagem
+      // Atualizar a mensagem com a nova conquista
       await buttonInteraction.update({
-        embeds: [pageData.embed],
-        components: [newRow],
-        files: newFiles
+        embeds: [generateAchievementEmbed(session.currentPage)],
+        components: [newRow]
       });
 
       // Atualizar sessão
