@@ -1463,7 +1463,7 @@ client.on('interactionCreate', async (interaction) => {
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
         .setTitle(`🏆 ${ach.displayName}`)
-        .setURL(url) // <<< ESSA LINHA FAZ O PLAYER APARECER
+        .setURL(url) // Link para tornar o título clicável
         .setDescription(ach.description)
         .addFields(
           { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
@@ -1480,7 +1480,7 @@ client.on('interactionCreate', async (interaction) => {
         embed.setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png');
       }
 
-      return { embed, attachment: null };
+      return { embed, videoLink };
     }
 
     // Função para gerar o Select Menu com as conquistas da página atual
@@ -1555,7 +1555,7 @@ client.on('interactionCreate', async (interaction) => {
         const ach = conquistasList[selectedIndex];
 
         // Embed da conquista (com vídeo)
-        const { embed } = await generateAchievementEmbed(ach);
+        const { embed, videoLink } = await generateAchievementEmbed(ach);
 
         // Botão para voltar à lista
         const backButton = new ActionRowBuilder()
@@ -1566,7 +1566,9 @@ client.on('interactionCreate', async (interaction) => {
               .setStyle(ButtonStyle.Secondary)
           );
 
+        // GAMBIARRA: envia o link no content para ativar o player
         await i.update({
+          content: videoLink ? `🎬 **Assista ao vídeo:** ${videoLink}` : null,
           embeds: [embed],
           components: [backButton]
         });
@@ -1586,6 +1588,7 @@ client.on('interactionCreate', async (interaction) => {
         const buttonRow = generatePaginationButtons(currentPage);
 
         await i.update({
+          content: null, // Remove o vídeo ao voltar para a lista
           embeds: [embed],
           components: [selectRow, buttonRow]
         });
@@ -1608,6 +1611,7 @@ client.on('interactionCreate', async (interaction) => {
         const buttonRow = generatePaginationButtons(currentPage);
 
         await i.update({
+          content: null, // Remove vídeo ao mudar de página
           embeds: [embed],
           components: [selectRow, buttonRow]
         });
