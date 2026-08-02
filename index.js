@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (ENVIO DE VÍDEO POR DM - ORDEM CORRIGIDA)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (BOTÃO PARA VÍDEO NA DM)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -968,6 +968,8 @@ console.log('🚀 [12] Cliente Discord criado.');
 // 13. CARREGAR MAPEAMENTO DE CONQUISTAS DO CANAL #lista-quero
 // ============================================================
 let conquestMappings = null;
+// Mapa para armazenar links de vídeo para botões em DMs
+const videoLinksMap = new Map();
 
 async function carregarMapeamentoConquistas() {
   const channelId = '1525926566373363823';
@@ -1310,7 +1312,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM ENVIO DE VÍDEO POR DM - ORDEM CORRIGIDA)
+  // 🔥 COMANDO /conquista (COM BOTÃO PARA VÍDEO NA DM)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1429,7 +1431,7 @@ client.on('interactionCreate', async (interaction) => {
     const ITEMS_PER_PAGE = 25;
     let currentPage = 0;
 
-    // Função para gerar a embed da conquista selecionada
+    // Função para gerar a embed da conquista selecionada (SEM o campo de vídeo)
     async function generateAchievementEmbed(ach) {
       // Prioridade: campo "video" do JSON (forçando HTTPS)
       let videoLink = ach.video ? ach.video.replace(/^http:/, 'https:') : null;
@@ -1467,9 +1469,8 @@ client.on('interactionCreate', async (interaction) => {
         .setDescription(ach.description)
         .addFields(
           { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
-          { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true },
-          // Campo alterado para "🎬 Ver vídeo guia"
-          { name: '🎬 Ver vídeo guia', value: videoLink ? `[Clique aqui](${videoLink})` : `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: false }
+          { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true }
+          // O campo de vídeo foi removido da embed – será substituído por um botão
         )
         .setFooter({ text: `Selecione outra conquista no menu abaixo` })
         .setTimestamp();
@@ -1566,21 +1567,40 @@ client.on('interactionCreate', async (interaction) => {
               .setStyle(ButtonStyle.Secondary)
           );
 
-        // Envia o vídeo na DM do usuário (primeiro a embed, depois o link)
+        // Envia a embed na DM com um botão para o vídeo
         try {
           const user = await client.users.fetch(i.user.id);
+
+          // Cria o botão para solicitar o vídeo
+          const videoButton = new ActionRowBuilder()
+            .addComponents(
+              new ButtonBuilder()
+                .setCustomId(`video_${i.user.id}_${ach.name.slice(0, 20)}`)
+                .setLabel('🎬 Ver vídeo guia')
+                .setStyle(ButtonStyle.Primary)
+            );
+
+          // Salva o link do vídeo no mapa global
           if (videoLink) {
-            // 1ª mensagem: embed com os detalhes
-            await user.send({ embeds: [embed] });
-            // 2ª mensagem: APENAS o link (ativa o player)
-            await user.send(videoLink);
-          } else {
-            // Se não tiver vídeo, envia apenas a embed
-            await user.send({ embeds: [embed] });
+            videoLinksMap.set(`video_${i.user.id}_${ach.name.slice(0, 20)}`, videoLink);
           }
+
+          // Envia a mensagem com a embed e o botão
+          if (videoLink) {
+            await user.send({
+              embeds: [embed],
+              components: [videoButton]
+            });
+          } else {
+            // Se não tiver vídeo, envia apenas a embed (sem botão)
+            await user.send({
+              embeds: [embed]
+            });
+          }
+
           // Atualiza a mensagem efêmera no canal para confirmar o envio
           await i.update({
-            content: `✅ **Vídeo da conquista "${ach.displayName}" enviado na sua DM!**`,
+            content: `✅ **Detalhes da conquista "${ach.displayName}" enviados na sua DM!** Clique no botão para assistir ao vídeo.`,
             embeds: [],
             components: [backButton]
           });
@@ -1654,7 +1674,43 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 16. !resetranking
+// 16. INTERAÇÕES COM BOTÕES (vídeo na DM)
+// ============================================================
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isButton()) return;
+
+  // Verifica se é um botão de vídeo (customId começa com 'video_')
+  if (interaction.customId.startsWith('video_')) {
+    // Busca o link do vídeo no mapa
+    const videoLink = videoLinksMap.get(interaction.customId);
+    if (!videoLink) {
+      await interaction.reply({
+        content: '❌ Link do vídeo não encontrado. Tente novamente.',
+        ephemeral: true
+      });
+      return;
+    }
+
+    // Envia o link do vídeo na mesma DM (ativa o player)
+    try {
+      await interaction.reply({
+        content: videoLink,
+        ephemeral: false // Envia como mensagem normal (não efêmera) para ativar o player
+      });
+      // Opcional: remove o botão ou desabilita
+      // await interaction.message.edit({ components: [] });
+    } catch (err) {
+      console.error('Erro ao enviar vídeo:', err);
+      await interaction.reply({
+        content: '❌ Erro ao enviar o vídeo. Tente novamente.',
+        ephemeral: true
+      });
+    }
+  }
+});
+
+// ============================================================
+// 17. !resetranking
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
@@ -1681,7 +1737,7 @@ client.on('messageCreate', async (message) => {
 });
 
 // ============================================================
-// 17. LOGIN
+// 18. LOGIN
 // ============================================================
 console.log('🔑 Tentando login...');
 client.login(DISCORD_TOKEN)
