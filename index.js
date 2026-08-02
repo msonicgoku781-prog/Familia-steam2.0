@@ -436,24 +436,56 @@ async function getAchievementDescription(appId, apiname) {
 }
 
 // ============================================================
-// 6.2 FUNÇÃO DE TRADUÇÃO (MyMemory API) - COM VALIDAÇÃO
+// 6.2 FUNÇÃO DE TRADUÇÃO (LibreTranslate + Fallback MyMemory)
 // ============================================================
 const translationCache = new Map();
 
 async function traduzirTexto(texto, targetLang = 'pt') {
   if (!texto || texto.length < 3) return texto;
-  // Se o texto já estiver em português (detecção simples: caracteres acentuados comuns), evita traduzir
+  
+  // Verifica se já está em português (heurística)
   const palavras = texto.split(' ');
   let acentos = 0;
   for (const palavra of palavras) {
     if (/[áàâãéêíóôõúç]/i.test(palavra)) acentos++;
   }
-  if (acentos > 1) return texto; // já parece português
+  if (acentos > 1) return texto;
 
-  // Verifica cache
   const cacheKey = `${texto}_${targetLang}`;
   if (translationCache.has(cacheKey)) return translationCache.get(cacheKey);
 
+  // Tenta LibreTranslate
+  const servers = [
+    'https://libretranslate.com/translate',
+    'https://translate.argosopentech.com/translate',
+  ];
+
+  for (const server of servers) {
+    try {
+      const response = await axios.post(server, {
+        q: texto,
+        source: 'en',
+        target: targetLang,
+        format: 'text'
+      }, {
+        timeout: 5000,
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.data && response.data.translatedText) {
+        const traduzido = response.data.translatedText;
+        if (!traduzido.includes('INVALID') && !traduzido.includes('ERROR')) {
+          translationCache.set(cacheKey, traduzido);
+          return traduzido;
+        }
+      }
+    } catch (e) {
+      console.warn(`⚠️ Falha no servidor ${server}: ${e.message}`);
+      continue;
+    }
+  }
+
+  // Fallback: MyMemory
   try {
     const url = 'https://api.mymemory.translated.net/get';
     const response = await axios.get(url, {
@@ -464,19 +496,18 @@ async function traduzirTexto(texto, targetLang = 'pt') {
       },
       timeout: 5000
     });
-    // Verifica se a resposta contém erro ou mensagem inválida
     if (response.data && response.data.responseData && response.data.responseData.translatedText) {
       const traduzido = response.data.responseData.translatedText;
-      // Verifica se a tradução não é uma mensagem de erro (como "INVALID EMAIL PROVIDED")
       if (!traduzido.includes('INVALID') && !traduzido.includes('ERROR')) {
         translationCache.set(cacheKey, traduzido);
         return traduzido;
       }
     }
   } catch (e) {
-    console.error('❌ Erro ao traduzir texto:', e.message);
+    console.warn('⚠️ Fallback MyMemory falhou:', e.message);
   }
-  // Fallback: mantém o original
+
+  // Fallback final: mantém o original
   translationCache.set(cacheKey, texto);
   return texto;
 }
