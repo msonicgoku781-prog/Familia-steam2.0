@@ -452,7 +452,6 @@ async function getAchievementImage(appId, apiname) {
         // ESTRATÉGIA 1: Proxy (mais rápido)
         try {
           const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(originalUrl)}&w=200&h=200&fit=cover`;
-          // Testa se o proxy responde
           const test = await axios.head(proxyUrl, { timeout: 3000 });
           if (test.status === 200) {
             return { type: 'url', url: proxyUrl };
@@ -482,7 +481,7 @@ async function getAchievementImage(appId, apiname) {
   } catch (e) {
     console.log(`⚠️ Erro ao buscar imagem para ${apiname}:`, e.message);
   }
-  return null; // Fallback: será usado o logo da Steam
+  return null;
 }
 
 console.log('🚀 [8] Funções da Steam API carregadas.');
@@ -968,7 +967,41 @@ const client = new Client({
 console.log('🚀 [12] Cliente Discord criado.');
 
 // ============================================================
-// 13. EVENTO clientReady
+// 13. CARREGAR MAPEAMENTO DE CONQUISTAS DO CANAL #lista-quero
+// ============================================================
+let conquestMappings = null;
+
+async function carregarMapeamentoConquistas() {
+  const channelId = '1525926566373363823'; // ID do canal #lista-quero
+  const channel = client.channels.cache.get(channelId);
+  if (!channel) {
+    console.error('❌ Canal #lista-quero não encontrado!');
+    return null;
+  }
+
+  try {
+    const messages = await channel.messages.fetch({ limit: 50 });
+    const msg = messages.find(m => 
+      m.attachments.size > 0 && 
+      m.attachments.some(a => a.name === 'megaman_x_achievements.json')
+    );
+    if (!msg) {
+      console.warn('⚠️ Arquivo megaman_x_achievements.json não encontrado no canal #lista-quero.');
+      return null;
+    }
+
+    const attachment = msg.attachments.find(a => a.name === 'megaman_x_achievements.json');
+    const response = await axios.get(attachment.url, { responseType: 'json' });
+    console.log(`✅ Mapeamento de conquistas carregado: ${Object.keys(response.data).length} conquistas`);
+    return response.data;
+  } catch (e) {
+    console.error('❌ Erro ao carregar mapeamento de conquistas:', e);
+    return null;
+  }
+}
+
+// ============================================================
+// 14. EVENTO clientReady
 // ============================================================
 client.once('clientReady', async () => {
   console.log(`✅ Bot online como ${client.user.tag}`);
@@ -1008,6 +1041,9 @@ client.once('clientReady', async () => {
       }
       await salvarDBNoCanal();
     }
+
+    // Carrega o mapeamento de conquistas do Mega Man X
+    conquestMappings = await carregarMapeamentoConquistas();
 
     console.log('🔄 Registrando comandos...');
     try {
@@ -1056,7 +1092,7 @@ client.once('clientReady', async () => {
 });
 
 // ============================================================
-// 14. COMANDOS SLASH
+// 15. COMANDOS SLASH
 // ============================================================
 // Variáveis para controle de paginação das conquistas
 const activeAchievementSessions = new Map();
@@ -1257,7 +1293,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM ESTRATÉGIA TRIPLA DE IMAGEM)
+  // 🔥 COMANDO /conquista (COM MAPEAMENTO PERSONALIZADO)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1318,65 +1354,81 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // 6. Filtrar conquistas não desbloqueadas
-    const faltantes = conquistasSchema
-      .filter(ach => !desbloqueadas.includes(ach.name));
+    const faltantes = conquistasSchema.filter(ach => !desbloqueadas.includes(ach.name));
 
     if (faltantes.length === 0) {
       await interaction.editReply(`🎉 Você já desbloqueou **todas** as conquistas de **${jogoInfo.nome}**!`);
       return;
     }
 
-    // 7. Paginação: 1 conquista por página
-    const totalPages = faltantes.length;
+    // 7. Verifica se é o Mega Man X Legacy Collection (appid 743890)
+    const isMegaManX = (appid === 743890);
+
+    // 8. Aplica mapeamento personalizado se disponível
+    const faltantesComMapeamento = faltantes.map(ach => {
+      const mapeado = (isMegaManX && conquestMappings && conquestMappings[ach.name]) ? conquestMappings[ach.name] : null;
+      return {
+        ...ach,
+        customDescription: mapeado ? mapeado.description : null,
+        customImage: mapeado ? mapeado.image : null
+      };
+    });
+
+    // 9. Paginação: 1 conquista por página
+    const totalPages = faltantesComMapeamento.length;
     let currentPage = 0;
 
-    // Cache para imagens (evita baixar novamente)
+    // Cache para imagens baixadas (fallback)
     const imageCache = new Map();
 
-    // Função para obter imagem (proxy -> download -> fallback)
     async function getAchievementImageData(appId, apiname) {
       const cacheKey = `${appId}_${apiname}`;
       if (imageCache.has(cacheKey)) return imageCache.get(cacheKey);
-      
       const result = await getAchievementImage(appId, apiname);
       imageCache.set(cacheKey, result);
       return result;
     }
 
-    // Função para gerar a embed da conquista atual com imagem
+    // Função para gerar a embed da conquista atual
     async function generateAchievementEmbed(page) {
-      const ach = faltantes[page];
+      const ach = faltantesComMapeamento[page];
       const num = page + 1;
-      
+
+      // Descrição: personalizada ou original
+      const desc = ach.customDescription || ach.description || 'Sem descrição';
+
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
         .setTitle(`🏆 ${num}. ${ach.displayName || ach.name}`)
-        .setDescription(ach.description || 'Sem descrição')
+        .setDescription(desc)
         .addFields(
           { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
-          { name: '📊 Progresso', value: `${num}/${faltantes.length} conquistas faltantes`, inline: true },
+          { name: '📊 Progresso', value: `${num}/${faltantesComMapeamento.length} conquistas faltantes`, inline: true },
           { name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: false }
         )
-        .setFooter({ text: `Conquista ${num} de ${faltantes.length} • Use os botões para navegar` })
+        .setFooter({ text: `Conquista ${num} de ${faltantesComMapeamento.length} • Use os botões para navegar` })
         .setTimestamp();
 
-      // Buscar imagem
+      // Imagem personalizada (prioridade máxima)
+      if (ach.customImage) {
+        embed.setThumbnail(ach.customImage);
+        return { embed, attachment: null };
+      }
+
+      // Fallback: tenta proxy/download (apenas para outros jogos ou se não houver mapeamento)
       const imageData = await getAchievementImageData(appid, ach.name);
-      
       if (imageData) {
         if (imageData.type === 'url') {
-          // Proxy: usa URL diretamente
           embed.setThumbnail(imageData.url);
           return { embed, attachment: null };
         } else if (imageData.type === 'attachment') {
-          // Download: anexa a imagem
           const attachment = new AttachmentBuilder(imageData.buffer, { name: imageData.filename });
           embed.setThumbnail(`attachment://${imageData.filename}`);
           return { embed, attachment };
         }
       }
-      
-      // Fallback: logo da Steam
+
+      // Fallback final: logo da Steam
       embed.setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png');
       return { embed, attachment: null };
     }
@@ -1400,65 +1452,47 @@ client.on('interactionCreate', async (interaction) => {
     const firstPage = await generateAchievementEmbed(currentPage);
     const files = firstPage.attachment ? [firstPage.attachment] : [];
 
-    // Enviar a primeira conquista
     const reply = await interaction.editReply({
       embeds: [firstPage.embed],
       components: [row],
       files: files
     });
 
-    // Armazenar a sessão para navegação
+    // Armazenar sessão
     const sessionId = `${interaction.user.id}_${interaction.id}`;
     activeAchievementSessions.set(sessionId, {
       userId: interaction.user.id,
-      faltantes: faltantes,
+      faltantes: faltantesComMapeamento,
       currentPage: currentPage,
       totalPages: totalPages,
       messageId: reply.id,
       channelId: interaction.channel.id,
-      jogoNome: jogoInfo.nome,
       appid: appid,
-      imageCache: imageCache,
-      generateEmbed: generateAchievementEmbed // guarda a função para usar depois
+      generateEmbed: generateAchievementEmbed
     });
 
-    // Criar collector para os botões
-    const filter = i => 
-      i.customId === 'prev_achievement' || i.customId === 'next_achievement';
-    
-    const collector = interaction.channel.createMessageComponentCollector({ 
-      filter, 
-      time: 120000 
-    });
+    // Collector para os botões
+    const filter = i => i.customId === 'prev_achievement' || i.customId === 'next_achievement';
+    const collector = interaction.channel.createMessageComponentCollector({ filter, time: 120000 });
 
     collector.on('collect', async (buttonInteraction) => {
-      // Verificar se é o mesmo usuário
       if (buttonInteraction.user.id !== interaction.user.id) {
-        await buttonInteraction.reply({ 
-          content: '❌ Apenas o usuário que solicitou pode navegar.', 
-          ephemeral: true 
-        });
+        await buttonInteraction.reply({ content: '❌ Apenas o usuário que solicitou pode navegar.', ephemeral: true });
         return;
       }
 
-      // Buscar a sessão
       const session = activeAchievementSessions.get(sessionId);
       if (!session) {
-        await buttonInteraction.reply({ 
-          content: '❌ Sessão expirada. Use /conquista novamente.', 
-          ephemeral: true 
-        });
+        await buttonInteraction.reply({ content: '❌ Sessão expirada. Use /conquista novamente.', ephemeral: true });
         return;
       }
 
-      // Atualizar página
       if (buttonInteraction.customId === 'prev_achievement' && session.currentPage > 0) {
         session.currentPage--;
       } else if (buttonInteraction.customId === 'next_achievement' && session.currentPage < session.totalPages - 1) {
         session.currentPage++;
       }
 
-      // Atualizar botões
       const newRow = new ActionRowBuilder()
         .addComponents(
           new ButtonBuilder()
@@ -1473,31 +1507,25 @@ client.on('interactionCreate', async (interaction) => {
             .setDisabled(session.currentPage === session.totalPages - 1)
         );
 
-      // Gerar a nova página com imagem
       const pageData = await session.generateEmbed(session.currentPage);
       const newFiles = pageData.attachment ? [pageData.attachment] : [];
 
-      // Atualizar a mensagem
       await buttonInteraction.update({
         embeds: [pageData.embed],
         components: [newRow],
         files: newFiles
       });
 
-      // Atualizar sessão
       activeAchievementSessions.set(sessionId, session);
     });
 
     collector.on('end', async () => {
-      // Remover botões após expirar
       try {
         const channel = client.channels.cache.get(interaction.channel.id);
         if (channel) {
           const msg = await channel.messages.fetch(reply.id).catch(() => null);
           if (msg) {
-            await msg.edit({
-              components: []
-            }).catch(() => {});
+            await msg.edit({ components: [] }).catch(() => {});
           }
         }
       } catch (_) {}
@@ -1507,7 +1535,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 15. !resetranking
+// 16. !resetranking
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
@@ -1534,7 +1562,7 @@ client.on('messageCreate', async (message) => {
 });
 
 // ============================================================
-// 16. LOGIN
+// 17. LOGIN
 // ============================================================
 console.log('🔑 Tentando login...');
 client.login(DISCORD_TOKEN)
