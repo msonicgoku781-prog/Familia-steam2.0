@@ -1539,13 +1539,27 @@ client.on('interactionCreate', async (interaction) => {
       // Fallback: link da Steam
       const url = videoLink || `https://store.steampowered.com/app/${appid}`;
 
-      // 🔥 TRADUZ A DESCRIÇÃO (se não for para Mega Man X, que já tem descrição em português)
+      // 🔥 OBTÉM A DESCRIÇÃO
       let descricao = ach.description || 'Sem descrição';
+
+      // Se NÃO for Mega Man X (que já tem descrição em português no JSON)
       if (!isMegaManX) {
-        descricao = await traduzirTexto(descricao);
-        // Se a tradução falhou e retornou uma mensagem de erro, mantém o original
-        if (descricao.includes('INVALID') || descricao.includes('ERROR')) {
-          descricao = ach.description || 'Sem descrição';
+        // Verifica se a descrição já está em português
+        const palavras = descricao.split(' ');
+        let acentos = 0;
+        for (const palavra of palavras) {
+          if (/[áàâãéêíóôõúç]/i.test(palavra)) acentos++;
+        }
+        // Se não tiver acentos, provavelmente está em inglês -> traduz
+        if (acentos < 2) {
+          console.log(`🔄 Traduzindo: "${descricao.substring(0, 30)}..."`);
+          const traduzida = await traduzirTexto(descricao);
+          if (traduzida && !traduzida.includes('INVALID') && !traduzida.includes('ERROR')) {
+            descricao = traduzida;
+            console.log(`✅ Tradução concluída: "${descricao.substring(0, 30)}..."`);
+          } else {
+            console.warn(`⚠️ Tradução falhou, mantendo original.`);
+          }
         }
       }
 
@@ -1557,7 +1571,6 @@ client.on('interactionCreate', async (interaction) => {
         .addFields(
           { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
           { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true }
-          // O campo de vídeo foi removido da embed – será substituído por um botão (apenas para Mega Man X)
         )
         .setFooter({ text: `Selecione outra conquista no menu abaixo` })
         .setTimestamp();
