@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM BUSCA ASSERTIVA DE VÍDEOS E LOGS
+// BOT STEAM FAMÍLIA - VERSÃO COM BUSCA ASSERTIVA DE VÍDEOS E CORREÇÃO RATE LIMIT
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1050,7 +1050,7 @@ async function checkAchievements() {
 console.log('🚀 [11] Tarefas periódicas carregadas.');
 
 // ============================================================
-// 12. FUNÇÃO DE BUSCA DE VÍDEOS NO YOUTUBE (COM LOGS DETALHADOS)
+// 12. FUNÇÃO DE BUSCA DE VÍDEOS NO YOUTUBE (COM DELAY E CONTROLE DE RATE LIMIT)
 // ============================================================
 async function buscarVideoYouTube(nomeJogo, nomeConquista) {
   if (!YOUTUBE_API_KEY) {
@@ -1066,25 +1066,28 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
     console.log(`📌 Jogo: "${nomeJogoLimpo}"`);
     console.log(`📌 Conquista: "${nomeConquistaLimpo}"`);
 
+    // 🔥 REDUZIDO PARA APENAS 3 TERMOS DE BUSCA
     const termosBusca = [
       `"${nomeConquistaLimpo}" "${nomeJogoLimpo}" trophy`,
       `"${nomeConquistaLimpo}" "${nomeJogoLimpo}" achievement`,
-      `"${nomeConquistaLimpo}" "${nomeJogoLimpo}" guia`,
       `${nomeConquistaLimpo} ${nomeJogoLimpo} trophy`,
-      `${nomeConquistaLimpo} ${nomeJogoLimpo} achievement`,
-      `${nomeJogoLimpo} ${nomeConquistaLimpo} guide`,
     ];
 
     console.log(`📋 Tentando ${termosBusca.length} termos de busca...`);
 
     let todosVideos = [];
-    let termoEncontrado = false;
 
-    for (const termo of termosBusca) {
-      if (termoEncontrado) break;
+    for (let i = 0; i < termosBusca.length; i++) {
+      const termo = termosBusca[i];
+      
+      // 🔥 DELAY DE 2 SEGUNDOS ENTRE REQUISIÇÕES (evita rate limit)
+      if (i > 0) {
+        console.log(`⏳ Aguardando 2 segundos antes da próxima requisição...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
       
       try {
-        console.log(`🔍 Buscando: "${termo}"`);
+        console.log(`🔍 Buscando (${i+1}/${termosBusca.length}): "${termo}"`);
         
         const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
           params: {
@@ -1096,22 +1099,28 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
             order: 'relevance',
             relevanceLanguage: 'pt,en'
           },
-          timeout: 8000
+          timeout: 10000
         });
 
         if (response.data.items?.length > 0) {
           console.log(`✅ Encontrou ${response.data.items.length} vídeos para "${termo}"`);
           todosVideos = todosVideos.concat(response.data.items);
           
-          if (termo.includes('"')) {
-            termoEncontrado = true;
+          // Se encontrou com busca exata (aspas), para de buscar
+          if (termo.includes('"') && response.data.items.length > 0) {
             console.log(`🎯 Busca exata encontrou resultados, parando...`);
+            break;
           }
         } else {
           console.log(`⚠️ Nenhum resultado para: "${termo}"`);
         }
       } catch (e) {
-        console.log(`❌ Erro no termo "${termo}": ${e.message}`);
+        if (e.response && e.response.status === 429) {
+          console.log(`❌ Rate limit (429) no termo "${termo}". Aguardando 5 segundos...`);
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        } else {
+          console.log(`❌ Erro no termo "${termo}": ${e.message}`);
+        }
       }
     }
 
@@ -1122,6 +1131,7 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
 
     console.log(`📊 Total bruto de vídeos: ${todosVideos.length}`);
 
+    // Remove duplicatas
     const idsVistos = new Set();
     const videosUnicos = todosVideos.filter(item => {
       if (idsVistos.has(item.id.videoId)) return false;
@@ -1131,6 +1141,7 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
 
     console.log(`📊 Vídeos únicos: ${videosUnicos.length}`);
 
+    // Buscar estatísticas dos vídeos
     const videoIds = videosUnicos.map(item => item.id.videoId).join(',');
     console.log(`📡 Buscando estatísticas para ${videosUnicos.length} vídeos...`);
     
@@ -1142,7 +1153,7 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
           id: videoIds,
           key: YOUTUBE_API_KEY
         },
-        timeout: 5000
+        timeout: 8000
       });
       console.log(`✅ Estatísticas recebidas`);
     } catch (e) {
@@ -1642,7 +1653,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista - COM BUSCA ASSERTIVA DE VÍDEOS
+  // 🔥 COMANDO /conquista
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
