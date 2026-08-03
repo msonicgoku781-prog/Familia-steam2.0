@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO FINAL CORRIGIDA
+// BOT STEAM FAMÍLIA - VERSÃO COM BUSCA DE VÍDEOS NO YOUTUBE
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -36,6 +36,10 @@ console.log(`📌 YOUTUBE_API_KEY presente: ${YOUTUBE_API_KEY ? 'SIM' : 'NÃO'}`
 if (!DISCORD_TOKEN || !STEAM_KEY || !STEAM_IDS || !CHANNEL_ID || !QUERO_CHANNEL_ID || !RULES_CHANNEL_ID) {
   console.error('❌ Variáveis obrigatórias ausentes. Verifique .env');
   process.exit(1);
+}
+
+if (!YOUTUBE_API_KEY) {
+  console.warn('⚠️ YOUTUBE_API_KEY não definida. A busca de vídeos não funcionará.');
 }
 
 const STEAM_IDS_ARRAY = STEAM_IDS.split(',').map(id => id.trim());
@@ -1046,7 +1050,154 @@ async function checkAchievements() {
 console.log('🚀 [11] Tarefas periódicas carregadas.');
 
 // ============================================================
-// 12. CLIENT DISCORD
+// 12. FUNÇÃO DE BUSCA DE VÍDEOS NO YOUTUBE
+// ============================================================
+async function buscarVideoYouTube(nomeJogo, nomeConquista) {
+  if (!YOUTUBE_API_KEY) {
+    console.warn('⚠️ YOUTUBE_API_KEY não definida. Não é possível buscar vídeos.');
+    return null;
+  }
+
+  try {
+    // Remove caracteres especiais e formata a busca
+    const nomeJogoLimpo = nomeJogo.replace(/[^\w\s]/gi, '').trim();
+    const nomeConquistaLimpo = nomeConquista.replace(/[^\w\s]/gi, '').trim();
+    
+    // Termos de busca em português e inglês
+    const termosBusca = [
+      `${nomeJogoLimpo} ${nomeConquistaLimpo} trophy guide`,
+      `${nomeJogoLimpo} ${nomeConquistaLimpo} achievement guide`,
+      `${nomeJogoLimpo} ${nomeConquistaLimpo} trophy`,
+      `${nomeJogoLimpo} ${nomeConquistaLimpo} achievement`,
+      `${nomeJogoLimpo} ${nomeConquistaLimpo} como desbloquear`,
+      `${nomeJogoLimpo} ${nomeConquistaLimpo} guia`
+    ];
+
+    let videoEncontrado = null;
+    let melhorScore = -1;
+
+    for (const termo of termosBusca) {
+      console.log(`🔍 Buscando no YouTube: "${termo}"`);
+      
+      const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+        params: {
+          part: 'snippet',
+          type: 'video',
+          maxResults: 10,
+          q: termo,
+          key: YOUTUBE_API_KEY,
+          relevanceLanguage: 'pt,en',
+          videoDuration: 'medium' // vídeos de 4-20 minutos
+        },
+        timeout: 8000
+      });
+
+      if (!response.data.items || response.data.items.length === 0) {
+        console.log(`⚠️ Nenhum resultado para: "${termo}"`);
+        continue;
+      }
+
+      // Para cada vídeo encontrado, busca detalhes adicionais (duração, views)
+      for (const item of response.data.items) {
+        const videoId = item.id.videoId;
+        const titulo = item.snippet.title.toLowerCase();
+        
+        // Verifica se o título contém palavras-chave relevantes
+        const palavrasChave = [
+          nomeConquistaLimpo.toLowerCase(),
+          'trophy', 'achievement', 'guia', 'guide',
+          'como', 'how to', 'desbloquear', 'unlock'
+        ];
+        
+        let score = 0;
+        for (const palavra of palavrasChave) {
+          if (titulo.includes(palavra)) score++;
+        }
+
+        // Tenta buscar detalhes do vídeo (duração e views)
+        try {
+          const videoDetails = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
+            params: {
+              part: 'contentDetails,statistics',
+              id: videoId,
+              key: YOUTUBE_API_KEY
+            },
+            timeout: 5000
+          });
+
+          if (videoDetails.data.items && videoDetails.data.items.length > 0) {
+            const details = videoDetails.data.items[0];
+            const duracao = details.contentDetails.duration;
+            
+            // Converte duração ISO 8601 para segundos
+            const duracaoSegundos = converterDuracaoISO(duracao);
+            
+            // Ignora vídeos com mais de 15 minutos
+            if (duracaoSegundos > 900) {
+              console.log(`⏱️ Vídeo "${item.snippet.title}" tem ${duracaoSegundos/60} minutos (muito longo)`);
+              continue;
+            }
+
+            // Adiciona pontos por visualizações (vídeos populares)
+            const views = parseInt(details.statistics.viewCount) || 0;
+            if (views > 1000) score += 2;
+            if (views > 10000) score += 3;
+            if (views > 100000) score += 5;
+
+            // Prioriza vídeos mais curtos (idealmente 3-8 minutos)
+            if (duracaoSegundos >= 180 && duracaoSegundos <= 480) score += 2;
+          }
+        } catch (e) {
+          console.log(`⚠️ Erro ao buscar detalhes do vídeo ${videoId}:`, e.message);
+        }
+
+        // Prioriza vídeos com título mais relevante
+        if (titulo.includes(nomeJogoLimpo.toLowerCase())) score += 2;
+        if (titulo.includes('guide') || titulo.includes('guia')) score += 2;
+        if (titulo.includes('trophy') || titulo.includes('achievement')) score += 2;
+
+        console.log(`📊 Vídeo "${item.snippet.title}" - Score: ${score}`);
+
+        if (score > melhorScore) {
+          melhorScore = score;
+          videoEncontrado = {
+            id: videoId,
+            titulo: item.snippet.title,
+            descricao: item.snippet.description,
+            canal: item.snippet.channelTitle,
+            thumbnail: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default?.url,
+            link: `https://www.youtube.com/watch?v=${videoId}`
+          };
+        }
+      }
+
+      // Se encontrou um vídeo com score alto, para de buscar
+      if (videoEncontrado && melhorScore >= 5) {
+        console.log(`✅ Vídeo encontrado com score ${melhorScore}: "${videoEncontrado.titulo}"`);
+        break;
+      }
+    }
+
+    return videoEncontrado;
+  } catch (error) {
+    console.error('❌ Erro ao buscar vídeo no YouTube:', error.message);
+    return null;
+  }
+}
+
+// Função auxiliar para converter duração ISO 8601 para segundos
+function converterDuracaoISO(duracao) {
+  const match = duracao.match(/PT(\d+H)?(\d+M)?(\d+S)?/);
+  const hours = parseInt(match[1]) || 0;
+  const minutes = parseInt(match[2]) || 0;
+  const seconds = parseInt(match[3]) || 0;
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+console.log('🚀 [12] Função de busca de vídeos carregada.');
+
+// ============================================================
+// 13. CLIENT DISCORD
 // ============================================================
 const client = new Client({
   intents: [
@@ -1056,10 +1207,10 @@ const client = new Client({
   ]
 });
 
-console.log('🚀 [12] Cliente Discord criado.');
+console.log('🚀 [13] Cliente Discord criado.');
 
 // ============================================================
-// 13. CARREGAR MAPEAMENTO DE CONQUISTAS DO CANAL #lista-quero
+// 14. CARREGAR MAPEAMENTO DE CONQUISTAS DO CANAL #lista-quero
 // ============================================================
 let conquestMappings = null;
 const videoLinksMap = new Map();
@@ -1107,7 +1258,7 @@ async function carregarMapeamentoDoCanal(channel) {
 }
 
 // ============================================================
-// 14. EVENTO clientReady
+// 15. EVENTO clientReady
 // ============================================================
 let botIniciado = false;
 
@@ -1197,7 +1348,7 @@ client.once('clientReady', async () => {
       botIniciado = true;
       try {
         const dono = await client.users.fetch(DONO_ID);
-        await dono.send('🚀 Bot Steam Família está online! Comando /conquista agora mostra TODAS as conquistas, mesmo se você não tiver o jogo.');
+        await dono.send('🚀 Bot Steam Família está online! Busca automática de vídeos guia no YouTube adicionada!');
         console.log('✅ Mensagem de inicialização enviada ao dono.');
       } catch (err) {
         console.log('⚠️ Não foi possível enviar mensagem ao dono:', err.message);
@@ -1210,7 +1361,7 @@ client.once('clientReady', async () => {
 });
 
 // ============================================================
-// 15. COMANDOS SLASH
+// 16. COMANDOS SLASH
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -1408,7 +1559,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista - MOSTRA TODAS AS CONQUISTAS (MESMO SEM TER O JOGO)
+  // 🔥 COMANDO /conquista - COM BUSCA AUTOMÁTICA DE VÍDEOS
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1503,7 +1654,7 @@ client.on('interactionCreate', async (interaction) => {
 
     const conquistasSchema = schemaData.game.availableGameStats.achievements;
 
-    // 6. Buscar conquistas do usuário (pode estar vazio se nunca jogou)
+    // 6. Buscar conquistas do usuário
     let conquistasUsuario = [];
     try {
       const playerAch = await getPlayerAchievements(userSteamId, appid);
@@ -1511,7 +1662,7 @@ client.on('interactionCreate', async (interaction) => {
         conquistasUsuario = playerAch.filter(c => c.achieved === 1).map(c => c.apiname);
       }
     } catch (e) {
-      console.log(`ℹ️ Usuário não tem conquistas para ${jogoInfo.nome} (pode nunca ter jogado)`);
+      console.log(`ℹ️ Usuário não tem conquistas para ${jogoInfo.nome}`);
       conquistasUsuario = [];
     }
 
@@ -1543,8 +1694,9 @@ client.on('interactionCreate', async (interaction) => {
     const usuarioTemJogo = donosDoJogo.some(d => d.steamId === userSteamId);
     const nomesDonos = donosDoJogo.map(d => d.nome).join(', ');
 
-    // 8. Gerar embed da conquista
+    // 8. 🔥 FUNÇÃO PARA GERAR EMBED DA CONQUISTA COM VÍDEO
     async function generateAchievementEmbed(ach, index) {
+      // Buscar imagem do ícone
       let imageUrl = ach.icon;
       if (imageUrl && !imageUrl.startsWith('http')) {
         imageUrl = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/${appid}/${imageUrl}`;
@@ -1554,6 +1706,7 @@ client.on('interactionCreate', async (interaction) => {
         imageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
       }
 
+      // Traduzir descrição
       let descricao = ach.description || 'Sem descrição disponível';
       if (descricao !== 'Sem descrição disponível' && descricao.length > 3) {
         const temAcento = /[áàâãéêíóôõúç]/i.test(descricao);
@@ -1565,6 +1718,45 @@ client.on('interactionCreate', async (interaction) => {
             }
           } catch (_) {}
         }
+      }
+
+      // 🔥 BUSCAR VÍDEO NO YOUTUBE
+      let videoInfo = null;
+      if (YOUTUBE_API_KEY) {
+        try {
+          videoInfo = await buscarVideoYouTube(jogoInfo.nome, ach.displayName);
+          if (videoInfo) {
+            console.log(`✅ Vídeo encontrado para "${ach.displayName}": ${videoInfo.link}`);
+          } else {
+            console.log(`⚠️ Nenhum vídeo encontrado para "${ach.displayName}"`);
+          }
+        } catch (e) {
+          console.error(`❌ Erro ao buscar vídeo para ${ach.displayName}:`, e.message);
+        }
+      }
+
+      // Criar botões
+      const buttons = new ActionRowBuilder();
+      
+      // Botão Voltar
+      buttons.addComponents(
+        new ButtonBuilder()
+          .setCustomId('back_to_list_conq')
+          .setLabel('🔙 Voltar à lista')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+      // Botão Vídeo (se encontrou)
+      if (videoInfo) {
+        const videoId = `video_${ach.name.slice(0, 20)}_${Date.now()}`;
+        videoLinksMap.set(videoId, videoInfo.link);
+        
+        buttons.addComponents(
+          new ButtonBuilder()
+            .setCustomId(videoId)
+            .setLabel('🎬 Ver vídeo guia')
+            .setStyle(ButtonStyle.Primary)
+        );
       }
 
       const embed = new EmbedBuilder()
@@ -1582,7 +1774,7 @@ client.on('interactionCreate', async (interaction) => {
         })
         .setTimestamp();
 
-      return embed;
+      return { embed, buttons, videoInfo };
     }
 
     // 9. Configurar paginação
@@ -1679,26 +1871,45 @@ client.on('interactionCreate', async (interaction) => {
     const collector = interaction.channel.createMessageComponentCollector({ filter, time: 180000 });
 
     collector.on('collect', async (i) => {
+      // 🔥 SE FOR BOTÃO DE VÍDEO
+      if (i.customId.startsWith('video_')) {
+        const videoLink = videoLinksMap.get(i.customId);
+        if (videoLink) {
+          try {
+            await i.reply({
+              content: `🎬 **Vídeo guia para a conquista:**\n${videoLink}`,
+              ephemeral: false
+            });
+          } catch (err) {
+            console.error('Erro ao enviar vídeo:', err);
+            await i.reply({
+              content: '❌ Erro ao enviar o vídeo. Tente novamente.',
+              ephemeral: true
+            });
+          }
+        } else {
+          await i.reply({
+            content: '❌ Link do vídeo não encontrado.',
+            ephemeral: true
+          });
+        }
+        return;
+      }
+
+      // Seleção de conquista
       if (i.customId === 'conquista_select') {
         const selectedIndex = parseInt(i.values[0]);
         const ach = conquistasList[selectedIndex];
-        const embed = await generateAchievementEmbed(ach, selectedIndex);
-
-        const backButton = new ActionRowBuilder()
-          .addComponents(
-            new ButtonBuilder()
-              .setCustomId('back_to_list_conq')
-              .setLabel('🔙 Voltar à lista')
-              .setStyle(ButtonStyle.Secondary)
-          );
+        const { embed, buttons, videoInfo } = await generateAchievementEmbed(ach, selectedIndex);
 
         await i.update({
           embeds: [embed],
-          components: [backButton]
+          components: [buttons]
         });
         return;
       }
 
+      // Voltar à lista
       if (i.customId === 'back_to_list_conq') {
         let descricaoAtualizada = `${mensagemAcesso}\n\n`;
         
@@ -1738,6 +1949,7 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
+      // Navegação de página
       if (i.customId === 'prev_page_conq' || i.customId === 'next_page_conq') {
         const totalPages = Math.ceil(totalConquistas / ITEMS_PER_PAGE);
         if (i.customId === 'prev_page_conq' && currentPage > 0) currentPage--;
@@ -1794,11 +2006,12 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 16. INTERAÇÕES COM BOTÕES (vídeo na DM)
+// 17. INTERAÇÕES COM BOTÕES (vídeo na DM - FALLBACK)
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
 
+  // Se for um botão de vídeo que não foi capturado pelo collector
   if (interaction.customId.startsWith('video_')) {
     const videoLink = videoLinksMap.get(interaction.customId);
     if (!videoLink) {
@@ -1811,7 +2024,7 @@ client.on('interactionCreate', async (interaction) => {
 
     try {
       await interaction.reply({
-        content: videoLink,
+        content: `🎬 **Vídeo guia para a conquista:**\n${videoLink}`,
         ephemeral: false
       });
     } catch (err) {
@@ -1825,7 +2038,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 17. !resetranking
+// 18. !resetranking
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
@@ -1852,7 +2065,7 @@ client.on('messageCreate', async (message) => {
 });
 
 // ============================================================
-// 18. LOGIN
+// 19. LOGIN
 // ============================================================
 console.log('🔑 Tentando login...');
 client.login(DISCORD_TOKEN)
