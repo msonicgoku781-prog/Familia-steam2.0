@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO FINAL CORRIGIDA
+// BOT STEAM FAMÍLIA - VERSÃO FINAL (SEM MENSAGEM DE INICIALIZAÇÃO)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1119,10 +1119,8 @@ async function carregarMapeamentoDoCanal(channel) {
 }
 
 // ============================================================
-// 14. EVENTO clientReady
+// 14. EVENTO clientReady (SEM MENSAGEM PARA O DONO)
 // ============================================================
-let botIniciado = false;
-
 client.once('clientReady', async () => {
   console.log(`✅ Bot online como ${client.user.tag}`);
   console.log(`📋 Banco de dados armazenado como anexo no canal: <#${QUERO_CHANNEL}>`);
@@ -1205,17 +1203,9 @@ client.once('clientReady', async () => {
     setInterval(verificarPromocoesQuero, 5 * 60 * 1000);
     console.log('🔄 Monitorando conquistas a cada 30s, novos jogos a cada 5min.');
 
-    // 🔥 CORREÇÃO: Só envia a mensagem UMA VEZ
-    if (!botIniciado) {
-      botIniciado = true;
-      try {
-        const dono = await client.users.fetch(DONO_ID);
-        await dono.send('🚀 Bot Steam Família está online! Comando /conquista (por jogo) adicionado.');
-        console.log('✅ Mensagem de inicialização enviada ao dono.');
-      } catch (err) {
-        console.log('⚠️ Não foi possível enviar mensagem ao dono:', err.message);
-      }
-    }
+    // 🔥 REMOVIDO: Mensagem "Bot Steam Família está online!" NÃO será mais enviada
+    console.log('✅ Bot inicializado com sucesso (sem mensagem para o dono).');
+
   } catch (err) {
     console.error('❌ ERRO FATAL NO EVENTO clientReady:', err);
     console.error('❌ Stack:', err.stack);
@@ -1421,7 +1411,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (CORRIGIDO - NÃO REPETE CONQUISTAS)
+  // 🔥 COMANDO /conquista (COM LOGS DE TRADUÇÃO)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1449,7 +1439,6 @@ client.on('interactionCreate', async (interaction) => {
     const appid = jogoInfo.appid;
 
     // 3. Verifica se é o Mega Man X Legacy Collection (appid 743890)
-    // 🔥 CORREÇÃO: Verifica APENAS o appid, não o nome
     const isMegaManX = (appid === 743890);
 
     // Variável para armazenar a lista de conquistas (faltantes) e a página atual
@@ -1541,9 +1530,16 @@ client.on('interactionCreate', async (interaction) => {
     totalConquistas = conquistasList.length;
 
     // ============================================================
-    // FUNÇÃO GERAR EMBED DA CONQUISTA (COM TRADUÇÃO FORÇADA)
+    // FUNÇÃO GERAR EMBED DA CONQUISTA (COM LOGS DE TRADUÇÃO)
     // ============================================================
     async function generateAchievementEmbed(ach) {
+      console.log(`\n🔍 ===== INICIANDO generateAchievementEmbed =====`);
+      console.log(`📌 Nome da conquista: ${ach.name}`);
+      console.log(`📌 DisplayName: ${ach.displayName}`);
+      console.log(`📌 Descrição original: "${ach.description}"`);
+      console.log(`📌 Jogo: ${jogoInfo.nome} (AppID: ${appid})`);
+      console.log(`📌 isMegaManX: ${isMegaManX}`);
+      
       // Prioridade: campo "video" do JSON (forçando HTTPS)
       let videoLink = ach.video ? ach.video.replace(/^http:/, 'https:') : null;
 
@@ -1574,34 +1570,42 @@ client.on('interactionCreate', async (interaction) => {
       const url = videoLink || `https://store.steampowered.com/app/${appid}`;
 
       // ============================================================
-      // 🔥 TRADUÇÃO FORÇADA DA DESCRIÇÃO PARA PORTUGUÊS
+      // 🔥 TRADUÇÃO DA DESCRIÇÃO COM LOGS DETALHADOS
       // ============================================================
       let descricao = ach.description || 'Sem descrição disponível';
+      console.log(`📝 Descrição inicial: "${descricao}"`);
       
       // Se for "Sem descrição disponível" ou vazio, não tenta traduzir
       if (descricao === 'Sem descrição disponível' || descricao === 'Sem descrição' || descricao.trim() === '') {
+        console.log(`⚠️ Descrição vazia ou genérica, não traduzindo.`);
         descricao = '📝 Descrição não disponível para esta conquista.';
       } else {
         // Verifica se a descrição já está em português (tem caracteres acentuados)
         const temAcento = /[áàâãéêíóôõúç]/i.test(descricao);
+        console.log(`🔍 Verificando se tem acentos: ${temAcento ? 'SIM' : 'NÃO'}`);
+        console.log(`🔍 Tamanho da descrição: ${descricao.length} caracteres`);
         
         if (!temAcento && descricao.length > 3) {
-          console.log(`🔄 Traduzindo descrição: "${descricao.substring(0, 50)}..."`);
+          console.log(`🔄 Iniciando tradução para: "${descricao}"`);
           try {
             const traducao = await traduzirTexto(descricao);
+            console.log(`📥 Resposta da tradução: "${traducao}"`);
             if (traducao && !traducao.includes('INVALID') && !traducao.includes('ERROR')) {
               descricao = traducao;
-              console.log(`✅ Tradução concluída: "${descricao.substring(0, 50)}..."`);
+              console.log(`✅ TRADUÇÃO CONCLUÍDA: "${descricao}"`);
             } else {
-              console.log(`⚠️ Tradução falhou, mantendo original`);
+              console.log(`⚠️ Tradução retornou erro ou inválido, mantendo original: "${descricao}"`);
             }
           } catch (e) {
             console.log(`❌ Erro ao traduzir: ${e.message}`);
+            console.log(`📄 Stack: ${e.stack}`);
           }
         } else {
-          console.log(`ℹ️ Descrição já parece estar em português ou é muito curta: "${descricao.substring(0, 30)}..."`);
+          console.log(`ℹ️ Descrição NÃO será traduzida. Motivo: ${!temAcento ? 'já tem acentos (português)' : 'muito curta'}`);
         }
       }
+
+      console.log(`📝 Descrição FINAL: "${descricao}"`);
 
       // ============================================================
       // 🔥 BUSCA A IMAGEM DO ÍCONE
@@ -1651,6 +1655,7 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       console.log(`📦 URL FINAL da imagem para ${ach.name}: ${imageUrl}`);
+      console.log(`===== FIM generateAchievementEmbed =====\n`);
 
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
