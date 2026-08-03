@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (CORRIGIDO - ÍCONE COM URL COMPLETA)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (CORRIGIDO)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -552,6 +552,8 @@ const translationCache = new Map();
 
 async function traduzirTexto(texto, targetLang = 'pt') {
   if (!texto || texto.length < 3) return texto;
+  
+  // Verifica se já tem caracteres acentuados (provavelmente já está em português)
   const palavras = texto.split(' ');
   let acentos = 0;
   for (const palavra of palavras) {
@@ -1201,10 +1203,14 @@ client.once('clientReady', async () => {
     setInterval(verificarPromocoesQuero, 5 * 60 * 1000);
     console.log('🔄 Monitorando conquistas a cada 30s, novos jogos a cada 5min.');
 
+    // 🔥 CORREÇÃO: Só envia a mensagem uma vez
     try {
       const dono = await client.users.fetch(DONO_ID);
       await dono.send('🚀 Bot Steam Família está online! Comando /conquista (por jogo) adicionado.');
-    } catch (_) {}
+      console.log('✅ Mensagem de inicialização enviada ao dono.');
+    } catch (err) {
+      console.log('⚠️ Não foi possível enviar mensagem ao dono:', err.message);
+    }
   } catch (err) {
     console.error('❌ ERRO FATAL NO EVENTO clientReady:', err);
     console.error('❌ Stack:', err.stack);
@@ -1410,7 +1416,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (CORRIGIDO - URL COMPLETA DO ÍCONE)
+  // 🔥 COMANDO /conquista (CORRIGIDO)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1437,8 +1443,9 @@ client.on('interactionCreate', async (interaction) => {
     }
     const appid = jogoInfo.appid;
 
-    // 3. Verifica se é o Mega Man X Legacy Collection (appid 743890 ou nome)
-    const isMegaManX = (appid === 743890 || jogoInfo.nome.includes('Mega Man X Legacy Collection'));
+    // 3. Verifica se é o Mega Man X Legacy Collection (appid 743890)
+    // 🔥 CORREÇÃO: Verifica APENAS o appid, não o nome
+    const isMegaManX = (appid === 743890);
 
     // Variável para armazenar a lista de conquistas (faltantes) e a página atual
     let conquistasList = [];
@@ -1448,13 +1455,15 @@ client.on('interactionCreate', async (interaction) => {
     // OBTÉM A LISTA DE CONQUISTAS (MEGA MAN X JSON OU STEAM)
     // ============================================================
     if (isMegaManX && conquestMappings) {
+      console.log(`🎮 Mega Man X detectado! Usando JSON personalizado.`);
       // Busca conquistas já desbloqueadas (via Steam)
       let desbloqueadas = [];
       try {
         const playerAch = await getPlayerAchievements(steamId, appid);
         desbloqueadas = playerAch.filter(c => c.achieved === 1).map(c => c.apiname);
+        console.log(`📊 Mega Man X: ${desbloqueadas.length} conquistas já desbloqueadas`);
       } catch (e) {
-        console.warn(`⚠️ Erro ao buscar conquistas desbloqueadas: ${e.message}`);
+        console.warn(`⚠️ Erro ao buscar conquistas desbloqueadas do Mega Man X: ${e.message}`);
         desbloqueadas = [];
       }
 
@@ -1464,13 +1473,16 @@ client.on('interactionCreate', async (interaction) => {
         .map(nome => ({
           name: nome,
           displayName: nome,
-          description: conquestMappings[nome].description || 'Sem descrição',
+          description: conquestMappings[nome].description || 'Sem descrição disponível',
           iconUrl: conquestMappings[nome].image || null,
           video: conquestMappings[nome].video || null
         }));
       conquistasList.sort((a, b) => a.name.localeCompare(b.name));
+      
+      console.log(`📊 Mega Man X: ${conquistasList.length} conquistas faltantes`);
     } else {
       // Para outros jogos: usa a Steam
+      console.log(`🎮 Usando Steam API para: ${jogoInfo.nome} (AppID: ${appid})`);
       const ownedGames = await getOwnedGames(steamId);
       const possui = ownedGames.some(g => g.appid === appid);
       if (!possui) {
@@ -1506,7 +1518,7 @@ client.on('interactionCreate', async (interaction) => {
         .map(ach => ({
           name: ach.name,
           displayName: ach.displayName || ach.name,
-          description: ach.description || 'Sem descrição',
+          description: ach.description || 'Sem descrição disponível',
           iconUrl: null,
           video: null
         }));
@@ -1524,7 +1536,7 @@ client.on('interactionCreate', async (interaction) => {
     totalConquistas = conquistasList.length;
 
     // ============================================================
-    // FUNÇÃO GERAR EMBED DA CONQUISTA (CORRIGIDA - URL COMPLETA)
+    // FUNÇÃO GERAR EMBED DA CONQUISTA (COM TRADUÇÃO FORÇADA)
     // ============================================================
     async function generateAchievementEmbed(ach) {
       // Prioridade: campo "video" do JSON (forçando HTTPS)
@@ -1556,17 +1568,38 @@ client.on('interactionCreate', async (interaction) => {
       // Fallback: link da Steam
       const url = videoLink || `https://store.steampowered.com/app/${appid}`;
 
-      // 🔥 TRADUZ A DESCRIÇÃO (se não for para Mega Man X, que já tem descrição em português)
-      let descricao = ach.description || 'Sem descrição';
-      if (!isMegaManX) {
-        descricao = await traduzirTexto(descricao);
-        if (descricao.includes('INVALID') || descricao.includes('ERROR')) {
-          descricao = ach.description || 'Sem descrição';
+      // ============================================================
+      // 🔥 TRADUÇÃO FORÇADA DA DESCRIÇÃO PARA PORTUGUÊS
+      // ============================================================
+      let descricao = ach.description || 'Sem descrição disponível';
+      
+      // Se for "Sem descrição disponível" ou vazio, não tenta traduzir
+      if (descricao === 'Sem descrição disponível' || descricao === 'Sem descrição' || descricao.trim() === '') {
+        descricao = '📝 Descrição não disponível para esta conquista.';
+      } else {
+        // Verifica se a descrição já está em português (tem caracteres acentuados)
+        const temAcento = /[áàâãéêíóôõúç]/i.test(descricao);
+        
+        if (!temAcento && descricao.length > 3) {
+          console.log(`🔄 Traduzindo descrição: "${descricao.substring(0, 50)}..."`);
+          try {
+            const traducao = await traduzirTexto(descricao);
+            if (traducao && !traducao.includes('INVALID') && !traducao.includes('ERROR')) {
+              descricao = traducao;
+              console.log(`✅ Tradução concluída: "${descricao.substring(0, 50)}..."`);
+            } else {
+              console.log(`⚠️ Tradução falhou, mantendo original`);
+            }
+          } catch (e) {
+            console.log(`❌ Erro ao traduzir: ${e.message}`);
+          }
+        } else {
+          console.log(`ℹ️ Descrição já parece estar em português ou é muito curta: "${descricao.substring(0, 30)}..."`);
         }
       }
 
       // ============================================================
-      // 🔥 BUSCA A IMAGEM DO ÍCONE (CORRIGIDO - URL COMPLETA)
+      // 🔥 BUSCA A IMAGEM DO ÍCONE
       // ============================================================
       console.log(`🖼️ GERANDO EMBED PARA: ${ach.name}`);
       let imageUrl = ach.iconUrl || null;
@@ -1595,7 +1628,7 @@ client.on('interactionCreate', async (interaction) => {
         console.log(`📦 Capa: ${imageUrl}`);
       }
 
-      // FALLBACK 2: Verifica se a imagem é acessível (apenas para URLs que não são da Steam CDN)
+      // FALLBACK 2: Verifica se a imagem é acessível
       if (imageUrl && !imageUrl.includes('cdn.steamstatic.com')) {
         try {
           console.log(`🔄 Testando imagem: ${imageUrl}`);
@@ -1705,7 +1738,7 @@ client.on('interactionCreate', async (interaction) => {
         const selectedIndex = parseInt(i.values[0]);
         const ach = conquistasList[selectedIndex];
 
-        // Gerar embed com ícone (com 3 camadas de fallback)
+        // Gerar embed com ícone
         const { embed, videoLink } = await generateAchievementEmbed(ach);
 
         // Botão para voltar à lista
@@ -1740,12 +1773,11 @@ client.on('interactionCreate', async (interaction) => {
             components: components
           });
 
-          // 🔥 CORREÇÃO: Usa flags em vez de ephemeral
           await i.update({
             content: `✅ **Detalhes da conquista "${ach.displayName}" enviados na sua DM!** ${videoLink ? 'Clique no botão para assistir ao vídeo.' : ''}`,
             embeds: [],
             components: [backButton],
-            flags: 64 // Ephemeral
+            flags: 64
           });
         } catch (err) {
           console.error('Erro ao enviar DM:', err);
@@ -1753,7 +1785,7 @@ client.on('interactionCreate', async (interaction) => {
             content: `❌ **Não foi possível enviar a DM.** Verifique se você permite mensagens de servidores.`,
             embeds: [],
             components: [backButton],
-            flags: 64 // Ephemeral
+            flags: 64
           });
         }
         return;
