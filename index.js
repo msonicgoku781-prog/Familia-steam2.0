@@ -1627,14 +1627,24 @@ client.on('interactionCreate', async (interaction) => {
       const gameName = GAME_NAMES[game] || game;
       const gameEmoji = GAME_EMOJIS[game] || '🎮';
       
+      // Limita a lista para não estourar o tamanho da embed (25 itens)
+      const maxDisplay = 25;
+      const displayAchievements = gameAchievements.slice(0, maxDisplay);
+      const hasMore = gameAchievements.length > maxDisplay;
+      
+      let description = `**${gameAchievements.length} conquistas faltantes**\n\n`;
+      description += displayAchievements.map((ach, index) => 
+        `**${index + 1}.** ${ach.displayName}`
+      ).join('\n');
+      
+      if (hasMore) {
+        description += `\n\n*... e mais ${gameAchievements.length - maxDisplay} conquistas*`;
+      }
+
       const embed = new EmbedBuilder()
         .setColor(0x00AE86)
         .setTitle(`${gameEmoji} ${gameName}`)
-        .setDescription(`**${gameAchievements.length} conquistas faltantes**\n\n` +
-          gameAchievements.map((ach, index) => 
-            `**${index + 1}.** ${ach.displayName}`
-          ).join('\n')
-        )
+        .setDescription(description)
         .setFooter({ 
           text: `Aba ${availableGames.indexOf(game) + 1}/${availableGames.length} • Clique no menu abaixo para ver os detalhes de uma conquista` 
         })
