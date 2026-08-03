@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (ABAS POR JOGO - MEGA MAN X)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (BOTÃO PARA VÍDEO NA DM - APENAS MEGA MAN X + TRADUÇÃO)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -433,6 +433,52 @@ async function getAchievementDescription(appId, apiname) {
     console.error(`❌ Erro ao buscar descrição da conquista ${apiname} para o jogo ${appId}:`, e.message);
   }
   return null;
+}
+
+// ============================================================
+// 6.2 FUNÇÃO DE TRADUÇÃO (MyMemory API) - COM VALIDAÇÃO
+// ============================================================
+const translationCache = new Map();
+
+async function traduzirTexto(texto, targetLang = 'pt') {
+  if (!texto || texto.length < 3) return texto;
+  // Se o texto já estiver em português (detecção simples: caracteres acentuados comuns), evita traduzir
+  const palavras = texto.split(' ');
+  let acentos = 0;
+  for (const palavra of palavras) {
+    if (/[áàâãéêíóôõúç]/i.test(palavra)) acentos++;
+  }
+  if (acentos > 1) return texto; // já parece português
+
+  // Verifica cache
+  const cacheKey = `${texto}_${targetLang}`;
+  if (translationCache.has(cacheKey)) return translationCache.get(cacheKey);
+
+  try {
+    const url = 'https://api.mymemory.translated.net/get';
+    const response = await axios.get(url, {
+      params: {
+        q: texto,
+        langpair: `en|${targetLang}`,
+        de: 'steam-family-bot'
+      },
+      timeout: 5000
+    });
+    // Verifica se a resposta contém erro ou mensagem inválida
+    if (response.data && response.data.responseData && response.data.responseData.translatedText) {
+      const traduzido = response.data.responseData.translatedText;
+      // Verifica se a tradução não é uma mensagem de erro (como "INVALID EMAIL PROVIDED")
+      if (!traduzido.includes('INVALID') && !traduzido.includes('ERROR')) {
+        translationCache.set(cacheKey, traduzido);
+        return traduzido;
+      }
+    }
+  } catch (e) {
+    console.error('❌ Erro ao traduzir texto:', e.message);
+  }
+  // Fallback: mantém o original
+  translationCache.set(cacheKey, texto);
+  return texto;
 }
 
 // ============================================================
@@ -967,7 +1013,7 @@ console.log('🚀 [12] Cliente Discord criado.');
 // ============================================================
 // 13. CARREGAR MAPEAMENTO DE CONQUISTAS DO CANAL #lista-quero
 // ============================================================
-let conquestMappings = {};
+let conquestMappings = null;
 // Mapa para armazenar links de vídeo para botões em DMs
 const videoLinksMap = new Map();
 
@@ -993,34 +1039,25 @@ async function carregarMapeamentoConquistas() {
 async function carregarMapeamentoDoCanal(channel) {
   try {
     const messages = await channel.messages.fetch({ limit: 50 });
-    const allMappings = {};
-
-    // Procura por TODOS os arquivos .json no canal
-    const jsonMessages = messages.filter(m => 
+    const msg = messages.find(m => 
       m.attachments.size > 0 && 
-      m.attachments.some(a => a.name.endsWith('.json'))
+      m.attachments.some(a => a.name === 'megaman_x_achievements.json')
     );
-
-    for (const [, msg] of jsonMessages) {
-      for (const attachment of msg.attachments.values()) {
-        if (attachment.name.endsWith('.json')) {
-          console.log(`📥 Baixando anexo: ${attachment.name}`);
-          try {
-            const response = await axios.get(attachment.url, { responseType: 'json' });
-            // Mescla os dados de cada arquivo
-            Object.assign(allMappings, response.data);
-            console.log(`✅ ${Object.keys(response.data).length} conquistas carregadas de ${attachment.name}`);
-          } catch (e) {
-            console.error(`❌ Erro ao carregar ${attachment.name}:`, e.message);
-          }
-        }
-      }
+    if (!msg) {
+      console.warn('⚠️ Nenhuma mensagem com o arquivo megaman_x_achievements.json encontrada.');
+      messages.forEach(m => {
+        m.attachments.forEach(a => console.log(`📎 Anexo encontrado: ${a.name}`));
+      });
+      return null;
     }
 
-    console.log(`✅ Total de conquistas carregadas: ${Object.keys(allMappings).length}`);
-    return allMappings;
+    const attachment = msg.attachments.find(a => a.name === 'megaman_x_achievements.json');
+    console.log(`📥 Baixando anexo de ${attachment.url}`);
+    const response = await axios.get(attachment.url, { responseType: 'json' });
+    console.log(`✅ Mapeamento carregado: ${Object.keys(response.data).length} conquistas`);
+    return response.data;
   } catch (e) {
-    console.error('❌ Erro ao carregar mapeamentos:', e.message);
+    console.error('❌ Erro ao carregar mapeamento:', e.message);
     if (e.response) console.error('Status HTTP:', e.response.status);
     return null;
   }
@@ -1071,7 +1108,7 @@ client.once('clientReady', async () => {
     // Carrega o mapeamento de conquistas do Mega Man X
     conquestMappings = await carregarMapeamentoConquistas();
     if (conquestMappings) {
-      console.log(`✅ Mapeamento de conquistas carregado com sucesso.`);
+      console.log(`✅ Mapeamento de conquistas do Mega Man X carregado com sucesso.`);
     } else {
       console.warn('⚠️ Mapeamento não carregado. As imagens personalizadas não serão usadas.');
     }
@@ -1112,6 +1149,10 @@ client.once('clientReady', async () => {
     setInterval(verificarPromocoesQuero, 5 * 60 * 1000);
     console.log('🔄 Monitorando conquistas a cada 30s, novos jogos a cada 5min.');
 
+    try {
+      const dono = await client.users.fetch(DONO_ID);
+      await dono.send('🚀 Bot Steam Família está online! Comando /conquista (por jogo) adicionado.');
+    } catch (_) {}
   } catch (err) {
     console.error('❌ ERRO FATAL NO EVENTO clientReady:', err);
     console.error('❌ Stack:', err.stack);
@@ -1317,7 +1358,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM ABAS POR JOGO - MEGA MAN X)
+  // 🔥 COMANDO /conquista (COM TRADUÇÃO + BOTÃO APENAS PARA MEGA MAN X)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1355,36 +1396,29 @@ client.on('interactionCreate', async (interaction) => {
     // OBTÉM A LISTA DE CONQUISTAS (MEGA MAN X JSON OU STEAM)
     // ============================================================
     if (isMegaManX && conquestMappings) {
-      // 🔥 PARA MEGA MAN X: usa o JSON para obter os nomes das conquistas
-      // e busca quais já foram desbloqueadas via Steam API (apenas para filtrar)
+      // Busca conquistas já desbloqueadas (via Steam)
       let desbloqueadas = [];
       try {
         const playerAch = await getPlayerAchievements(steamId, appid);
         desbloqueadas = playerAch.filter(c => c.achieved === 1).map(c => c.apiname);
-        console.log(`✅ ${desbloqueadas.length} conquistas já desbloqueadas para ${jogoInfo.nome} (appid: ${appid})`);
-        console.log(`📋 Conquistas desbloqueadas: ${desbloqueadas.join(', ')}`);
       } catch (e) {
         console.warn(`⚠️ Erro ao buscar conquistas desbloqueadas: ${e.message}`);
         desbloqueadas = [];
       }
 
-      // 🔥 FILTRA O JSON: remove as conquistas que já estão desbloqueadas (pelo nome)
-      const todasConquistas = Object.keys(conquestMappings);
-      conquistasList = todasConquistas
+      // Filtra o JSON
+      conquistasList = Object.keys(conquestMappings)
         .filter(nome => !desbloqueadas.includes(nome))
         .map(nome => ({
           name: nome,
           displayName: nome,
           description: conquestMappings[nome].description || 'Sem descrição',
           iconUrl: conquestMappings[nome].image || null,
-          video: conquestMappings[nome].video || null,
-          game: conquestMappings[nome].game || 'X1' // Adiciona o campo game
+          video: conquestMappings[nome].video || null
         }));
-      
-      console.log(`📋 ${conquistasList.length} conquistas faltantes para Mega Man X`);
-      console.log(`📋 Total de conquistas no JSON: ${todasConquistas.length}`);
+      conquistasList.sort((a, b) => a.name.localeCompare(b.name));
     } else {
-      // Para outros jogos: usa a Steam (mantido igual)
+      // Para outros jogos: usa a Steam
       const ownedGames = await getOwnedGames(steamId);
       const possui = ownedGames.some(g => g.appid === appid);
       if (!possui) {
@@ -1425,263 +1459,64 @@ client.on('interactionCreate', async (interaction) => {
           video: null
         }));
       conquistasList.sort((a, b) => a.displayName.localeCompare(b.displayName));
-      
-      // Para outros jogos, usa o comportamento padrão (sem abas)
-      if (conquistasList.length === 0) {
-        await interaction.editReply(`🎉 Você já desbloqueou **todas** as conquistas de **${jogoInfo.nome}**!`);
-        return;
-      }
-      
-      totalConquistas = conquistasList.length;
-      const ITEMS_PER_PAGE = 25;
-      let currentPage = 0;
-      
-      // Função para gerar o Select Menu com as conquistas da página atual
-      function generateSelectMenu(page) {
-        const start = page * ITEMS_PER_PAGE;
-        const end = Math.min(start + ITEMS_PER_PAGE, totalConquistas);
-        const pageItems = conquistasList.slice(start, end);
-
-        const selectMenu = new ActionRowBuilder()
-          .addComponents(
-            new StringSelectMenuBuilder()
-              .setCustomId('achievement_select')
-              .setPlaceholder(`Escolha uma conquista (${page + 1}/${Math.ceil(totalConquistas / ITEMS_PER_PAGE)})`)
-              .addOptions(
-                pageItems.map((ach, index) => ({
-                  label: ach.displayName.length > 100 ? ach.displayName.substring(0, 97) + '...' : ach.displayName,
-                  description: ach.description ? ach.description.substring(0, 100) : 'Sem descrição',
-                  value: String(start + index),
-                }))
-              )
-          );
-
-        return selectMenu;
-      }
-
-      // Função para gerar os botões de navegação de página
-      function generatePaginationButtons(page) {
-        const totalPages = Math.ceil(totalConquistas / ITEMS_PER_PAGE);
-        return new ActionRowBuilder()
-          .addComponents(
-            new ButtonBuilder()
-              .setCustomId('prev_page')
-              .setLabel('◀️ Página anterior')
-              .setStyle(ButtonStyle.Primary)
-              .setDisabled(page === 0),
-            new ButtonBuilder()
-              .setCustomId('next_page')
-              .setLabel('Próxima página ▶️')
-              .setStyle(ButtonStyle.Primary)
-              .setDisabled(page === totalPages - 1)
-          );
-      }
-
-      // Função para gerar a embed da conquista selecionada
-      async function generateAchievementEmbed(ach) {
-        const descricao = ach.description || 'Sem descrição';
-        const embed = new EmbedBuilder()
-          .setColor(0xFFD700)
-          .setTitle(`🏆 ${ach.displayName}`)
-          .setURL(`https://store.steampowered.com/app/${appid}`)
-          .setDescription(descricao)
-          .addFields(
-            { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
-            { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true }
-          )
-          .setFooter({ text: `Selecione outra conquista no menu abaixo` })
-          .setTimestamp();
-        embed.setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png');
-        return { embed, videoLink: null };
-      }
-
-      // Envia o menu inicial
-      const initialEmbed = new EmbedBuilder()
-        .setColor(0x00AE86)
-        .setTitle(`📋 Conquistas faltantes de ${jogoInfo.nome}`)
-        .setDescription(`Selecione uma conquista no menu abaixo para ver os detalhes.\nTotal: **${totalConquistas}** conquistas faltantes.`)
-        .setFooter({ text: `Página 1 de ${Math.ceil(totalConquistas / ITEMS_PER_PAGE)}` })
-        .setTimestamp();
-
-      const selectRow = generateSelectMenu(0);
-      const buttonRow = generatePaginationButtons(0);
-
-      const reply = await interaction.editReply({
-        embeds: [initialEmbed],
-        components: [selectRow, buttonRow]
-      });
-
-      // Collector para interações
-      const filter = i => i.user.id === interaction.user.id;
-      const collector = interaction.channel.createMessageComponentCollector({ filter, time: 120000 });
-
-      collector.on('collect', async (i) => {
-        if (i.customId === 'achievement_select') {
-          const selectedIndex = parseInt(i.values[0]);
-          const ach = conquistasList[selectedIndex];
-          const { embed } = await generateAchievementEmbed(ach);
-          const backButton = new ActionRowBuilder()
-            .addComponents(
-              new ButtonBuilder()
-                .setCustomId('back_to_list')
-                .setLabel('🔙 Voltar à lista')
-                .setStyle(ButtonStyle.Secondary)
-            );
-          await i.update({
-            embeds: [embed],
-            components: [backButton]
-          });
-          return;
-        }
-        if (i.customId === 'back_to_list') {
-          const embed = new EmbedBuilder()
-            .setColor(0x00AE86)
-            .setTitle(`📋 Conquistas faltantes de ${jogoInfo.nome}`)
-            .setDescription(`Selecione uma conquista no menu abaixo para ver os detalhes.\nTotal: **${totalConquistas}** conquistas faltantes.`)
-            .setFooter({ text: `Página ${currentPage + 1} de ${Math.ceil(totalConquistas / ITEMS_PER_PAGE)}` })
-            .setTimestamp();
-          const selectRow = generateSelectMenu(currentPage);
-          const buttonRow = generatePaginationButtons(currentPage);
-          await i.update({
-            embeds: [embed],
-            components: [selectRow, buttonRow]
-          });
-          return;
-        }
-        if (i.customId === 'prev_page' || i.customId === 'next_page') {
-          if (i.customId === 'prev_page' && currentPage > 0) currentPage--;
-          if (i.customId === 'next_page' && currentPage < Math.ceil(totalConquistas / ITEMS_PER_PAGE) - 1) currentPage++;
-          const embed = new EmbedBuilder()
-            .setColor(0x00AE86)
-            .setTitle(`📋 Conquistas faltantes de ${jogoInfo.nome}`)
-            .setDescription(`Selecione uma conquista no menu abaixo para ver os detalhes.\nTotal: **${totalConquistas}** conquistas faltantes.`)
-            .setFooter({ text: `Página ${currentPage + 1} de ${Math.ceil(totalConquistas / ITEMS_PER_PAGE)}` })
-            .setTimestamp();
-          const selectRow = generateSelectMenu(currentPage);
-          const buttonRow = generatePaginationButtons(currentPage);
-          await i.update({
-            embeds: [embed],
-            components: [selectRow, buttonRow]
-          });
-          return;
-        }
-      });
-
-      collector.on('end', async () => {
-        try {
-          const channel = client.channels.cache.get(interaction.channel.id);
-          if (channel) {
-            const msg = await channel.messages.fetch(reply.id).catch(() => null);
-            if (msg) {
-              await msg.edit({ components: [] }).catch(() => {});
-            }
-          }
-        } catch (_) {}
-      });
-      
-      return; // Sai do comando após processar outros jogos
     }
 
     // ============================================================
-    // 🔥 PARA MEGA MAN X: CRIA AS ABAS POR JOGO
+    // VERIFICA SE HÁ CONQUISTAS FALTANTES
     // ============================================================
-    
-    // Agrupa conquistas por jogo
-    const games = ['X1', 'X2', 'X3', 'X4', 'X Challenge'];
-    const GAME_NAMES = {
-      'X1': 'Mega Man X1',
-      'X2': 'Mega Man X2',
-      'X3': 'Mega Man X3',
-      'X4': 'Mega Man X4',
-      'X Challenge': 'X Challenge'
-    };
-    const GAME_EMOJIS = {
-      'X1': '🔵',
-      'X2': '🟢',
-      'X3': '🟠',
-      'X4': '🔴',
-      'X Challenge': '⭐'
-    };
-
-    // Cria um mapa de conquistas por jogo
-    const achievementsByGame = {};
-    games.forEach(game => {
-      achievementsByGame[game] = conquistasList.filter(a => a.game === game);
-    });
-
-    // Remove jogos vazios (sem conquistas faltantes)
-    const availableGames = games.filter(game => achievementsByGame[game].length > 0);
-    
-    if (availableGames.length === 0) {
+    if (conquistasList.length === 0) {
       await interaction.editReply(`🎉 Você já desbloqueou **todas** as conquistas de **${jogoInfo.nome}**!`);
       return;
     }
 
-    // Variável para controle da aba atual
-    let currentGameIndex = 0;
-    let currentGame = availableGames[0];
+    totalConquistas = conquistasList.length;
 
-    // Função para gerar a embed da página do jogo atual
-    function generateGameEmbed(game) {
-      const gameAchievements = achievementsByGame[game] || [];
-      const gameName = GAME_NAMES[game] || game;
-      const gameEmoji = GAME_EMOJIS[game] || '🎮';
-      
-      // Limita a lista para não estourar o tamanho da embed (25 itens)
-      const maxDisplay = 25;
-      const displayAchievements = gameAchievements.slice(0, maxDisplay);
-      const hasMore = gameAchievements.length > maxDisplay;
-      
-      let description = `**${gameAchievements.length} conquistas faltantes**\n\n`;
-      description += displayAchievements.map((ach, index) => 
-        `**${index + 1}.** ${ach.displayName}`
-      ).join('\n');
-      
-      if (hasMore) {
-        description += `\n\n*... e mais ${gameAchievements.length - maxDisplay} conquistas*`;
-      }
+    // ============================================================
+    // FUNÇÕES PARA GERAR O MENU E AS EMBEDS (COM TRADUÇÃO)
+    // ============================================================
+    const ITEMS_PER_PAGE = 25;
+    let currentPage = 0;
 
-      const embed = new EmbedBuilder()
-        .setColor(0x00AE86)
-        .setTitle(`${gameEmoji} ${gameName}`)
-        .setDescription(description)
-        .setFooter({ 
-          text: `Aba ${availableGames.indexOf(game) + 1}/${availableGames.length} • Clique no menu abaixo para ver os detalhes de uma conquista` 
-        })
-        .setTimestamp();
-
-      return embed;
-    }
-
-    // Função para gerar o Select Menu com as abas (jogos)
-    function generateGameSelectMenu() {
-      const selectMenu = new ActionRowBuilder()
-        .addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId('game_tab_select')
-            .setPlaceholder('Escolha um jogo')
-            .addOptions(
-              availableGames.map(game => ({
-                label: GAME_NAMES[game] || game,
-                description: `${achievementsByGame[game].length} conquistas faltantes`,
-                value: game,
-                default: game === currentGame
-              }))
-            )
-        );
-
-      return selectMenu;
-    }
-
-    // Função para gerar a embed da conquista selecionada
+    // Função para gerar a embed da conquista selecionada (SEM o campo de vídeo)
     async function generateAchievementEmbed(ach) {
-      let videoLink = null;
-      if (ach.video) {
-        videoLink = ach.video.replace(/^http:/, 'https:');
+      // Prioridade: campo "video" do JSON (forçando HTTPS)
+      let videoLink = ach.video ? ach.video.replace(/^http:/, 'https:') : null;
+
+      // Se não tiver vídeo no JSON e tiver chave da API, tenta buscar automaticamente (fallback)
+      if (!videoLink && YOUTUBE_API_KEY) {
+        try {
+          const searchQuery = `Mega Man X Legacy Collection ${encodeURIComponent(ach.displayName)}`;
+          const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+            params: {
+              part: 'snippet',
+              type: 'video',
+              maxResults: 1,
+              q: searchQuery,
+              key: YOUTUBE_API_KEY
+            },
+            timeout: 5000
+          });
+          const videoId = response.data.items?.[0]?.id?.videoId;
+          if (videoId) {
+            videoLink = `https://www.youtube.com/watch?v=${videoId}`;
+          }
+        } catch (e) {
+          console.error('Erro ao buscar vídeo no YouTube:', e.message);
+        }
       }
 
+      // Fallback: link da Steam
       const url = videoLink || `https://store.steampowered.com/app/${appid}`;
-      const descricao = ach.description || 'Sem descrição';
+
+      // 🔥 TRADUZ A DESCRIÇÃO (se não for para Mega Man X, que já tem descrição em português)
+      let descricao = ach.description || 'Sem descrição';
+      if (!isMegaManX) {
+        descricao = await traduzirTexto(descricao);
+        // Se a tradução falhou e retornou uma mensagem de erro, mantém o original
+        if (descricao.includes('INVALID') || descricao.includes('ERROR')) {
+          descricao = ach.description || 'Sem descrição';
+        }
+      }
 
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
@@ -1689,8 +1524,9 @@ client.on('interactionCreate', async (interaction) => {
         .setURL(url)
         .setDescription(descricao)
         .addFields(
-          { name: '🎮 Jogo', value: `${GAME_NAMES[ach.game] || ach.game}`, inline: true },
+          { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
           { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true }
+          // O campo de vídeo foi removido da embed – será substituído por um botão (apenas para Mega Man X)
         )
         .setFooter({ text: `Selecione outra conquista no menu abaixo` })
         .setTimestamp();
@@ -1704,111 +1540,172 @@ client.on('interactionCreate', async (interaction) => {
       return { embed, videoLink };
     }
 
+    // Função para gerar o Select Menu com as conquistas da página atual
+    function generateSelectMenu(page) {
+      const start = page * ITEMS_PER_PAGE;
+      const end = Math.min(start + ITEMS_PER_PAGE, totalConquistas);
+      const pageItems = conquistasList.slice(start, end);
+
+      const selectMenu = new ActionRowBuilder()
+        .addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId('achievement_select')
+            .setPlaceholder(`Escolha uma conquista (${page + 1}/${Math.ceil(totalConquistas / ITEMS_PER_PAGE)})`)
+            .addOptions(
+              pageItems.map((ach, index) => ({
+                label: ach.displayName.length > 100 ? ach.displayName.substring(0, 97) + '...' : ach.displayName,
+                description: ach.description ? ach.description.substring(0, 100) : 'Sem descrição',
+                value: String(start + index),
+              }))
+            )
+        );
+
+      return selectMenu;
+    }
+
+    // Função para gerar os botões de navegação de página
+    function generatePaginationButtons(page) {
+      const totalPages = Math.ceil(totalConquistas / ITEMS_PER_PAGE);
+      return new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId('prev_page')
+            .setLabel('◀️ Página anterior')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(page === 0),
+          new ButtonBuilder()
+            .setCustomId('next_page')
+            .setLabel('Próxima página ▶️')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(page === totalPages - 1)
+        );
+    }
+
     // ============================================================
-    // ENVIA O MENU INICIAL COM AS ABAS
+    // ENVIA O MENU INICIAL
     // ============================================================
-    const initialEmbed = generateGameEmbed(currentGame);
-    const selectRow = generateGameSelectMenu();
+    const initialEmbed = new EmbedBuilder()
+      .setColor(0x00AE86)
+      .setTitle(`📋 Conquistas faltantes de ${jogoInfo.nome}`)
+      .setDescription(`Selecione uma conquista no menu abaixo para ver os detalhes.\nTotal: **${totalConquistas}** conquistas faltantes.`)
+      .setFooter({ text: `Página 1 de ${Math.ceil(totalConquistas / ITEMS_PER_PAGE)}` })
+      .setTimestamp();
+
+    const selectRow = generateSelectMenu(0);
+    const buttonRow = generatePaginationButtons(0);
 
     const reply = await interaction.editReply({
       embeds: [initialEmbed],
-      components: [selectRow]
+      components: [selectRow, buttonRow]
     });
 
     // ============================================================
-    // COLLECTOR PARA INTERAÇÕES (ABAS E CONQUISTAS)
+    // COLLECTOR PARA INTERAÇÕES (SELECT MENU E BOTÕES)
     // ============================================================
     const filter = i => i.user.id === interaction.user.id;
     const collector = interaction.channel.createMessageComponentCollector({ filter, time: 120000 });
 
     collector.on('collect', async (i) => {
-      // Caso 1: Seleção de uma aba (jogo)
-      if (i.customId === 'game_tab_select') {
-        const selectedGame = i.values[0];
-        currentGame = selectedGame;
-        currentGameIndex = availableGames.indexOf(selectedGame);
-
-        const embed = generateGameEmbed(selectedGame);
-        const newSelectRow = generateGameSelectMenu();
-
-        await i.update({
-          embeds: [embed],
-          components: [newSelectRow]
-        });
-        return;
-      }
-
-      // Caso 2: Seleção de uma conquista (via botão - será implementado)
+      // Caso 1: Seleção de uma conquista
       if (i.customId === 'achievement_select') {
         const selectedIndex = parseInt(i.values[0]);
-        // Precisa encontrar a conquista na lista global
         const ach = conquistasList[selectedIndex];
-        
-        if (!ach) {
-          await i.reply({
-            content: '❌ Conquista não encontrada.',
-            ephemeral: true
-          });
-          return;
-        }
 
+        // Gerar embed e link do vídeo (com tradução)
         const { embed, videoLink } = await generateAchievementEmbed(ach);
-        
-        // Botões: voltar e vídeo (se houver)
+
+        // Botão para voltar à lista
         const backButton = new ActionRowBuilder()
           .addComponents(
             new ButtonBuilder()
-              .setCustomId('back_to_games')
-              .setLabel('🔙 Voltar às abas')
+              .setCustomId('back_to_list')
+              .setLabel('🔙 Voltar à lista')
               .setStyle(ButtonStyle.Secondary)
           );
 
-        let components = [backButton];
-        
-        if (isMegaManX && videoLink) {
-          const videoButton = new ActionRowBuilder()
-            .addComponents(
-              new ButtonBuilder()
-                .setCustomId(`video_${i.user.id}_${ach.name.slice(0, 20)}`)
-                .setLabel('🎬 Ver vídeo guia')
-                .setStyle(ButtonStyle.Primary)
-            );
-          components.push(videoButton);
-          videoLinksMap.set(`video_${i.user.id}_${ach.name.slice(0, 20)}`, videoLink);
-        }
-
+        // Envia a embed na DM – com botão de vídeo APENAS para Mega Man X
         try {
           const user = await client.users.fetch(i.user.id);
+
+          // Cria os componentes (backButton + videoButton, se for Mega Man X)
+          const components = [backButton];
+
+          // 🔥 BOTÃO DE VÍDEO APENAS PARA MEGA MAN X E SE HOUVER LINK
+          if (isMegaManX && videoLink) {
+            const videoButton = new ActionRowBuilder()
+              .addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`video_${i.user.id}_${ach.name.slice(0, 20)}`)
+                  .setLabel('🎬 Ver vídeo guia')
+                  .setStyle(ButtonStyle.Primary)
+              );
+            components.push(videoButton);
+            // Salva o link do vídeo no mapa global
+            videoLinksMap.set(`video_${i.user.id}_${ach.name.slice(0, 20)}`, videoLink);
+          }
+
+          // Envia a mensagem com a embed e os componentes
           await user.send({
             embeds: [embed],
             components: components
           });
 
+          // Atualiza a mensagem efêmera no canal para confirmar o envio
           await i.update({
-            content: `✅ **Detalhes da conquista "${ach.displayName}" enviados na sua DM!** ${videoLink ? 'Clique no botão para assistir ao vídeo.' : ''}`,
+            content: `✅ **Detalhes da conquista "${ach.displayName}" enviados na sua DM!** ${isMegaManX && videoLink ? 'Clique no botão para assistir ao vídeo.' : ''}`,
             embeds: [],
-            components: []
+            components: [backButton]
           });
         } catch (err) {
           console.error('Erro ao enviar DM:', err);
           await i.update({
             content: `❌ **Não foi possível enviar a DM.** Verifique se você permite mensagens de servidores.`,
             embeds: [],
-            components: []
+            components: [backButton]
           });
         }
         return;
       }
 
-      // Caso 3: Voltar às abas
-      if (i.customId === 'back_to_games') {
-        const embed = generateGameEmbed(currentGame);
-        const selectRow = generateGameSelectMenu();
+      // Caso 2: Botão "Voltar à lista"
+      if (i.customId === 'back_to_list') {
+        const embed = new EmbedBuilder()
+          .setColor(0x00AE86)
+          .setTitle(`📋 Conquistas faltantes de ${jogoInfo.nome}`)
+          .setDescription(`Selecione uma conquista no menu abaixo para ver os detalhes.\nTotal: **${totalConquistas}** conquistas faltantes.`)
+          .setFooter({ text: `Página ${currentPage + 1} de ${Math.ceil(totalConquistas / ITEMS_PER_PAGE)}` })
+          .setTimestamp();
+
+        const selectRow = generateSelectMenu(currentPage);
+        const buttonRow = generatePaginationButtons(currentPage);
 
         await i.update({
           content: null,
           embeds: [embed],
-          components: [selectRow]
+          components: [selectRow, buttonRow]
+        });
+        return;
+      }
+
+      // Caso 3: Navegação de página
+      if (i.customId === 'prev_page' || i.customId === 'next_page') {
+        if (i.customId === 'prev_page' && currentPage > 0) currentPage--;
+        if (i.customId === 'next_page' && currentPage < Math.ceil(totalConquistas / ITEMS_PER_PAGE) - 1) currentPage++;
+
+        const embed = new EmbedBuilder()
+          .setColor(0x00AE86)
+          .setTitle(`📋 Conquistas faltantes de ${jogoInfo.nome}`)
+          .setDescription(`Selecione uma conquista no menu abaixo para ver os detalhes.\nTotal: **${totalConquistas}** conquistas faltantes.`)
+          .setFooter({ text: `Página ${currentPage + 1} de ${Math.ceil(totalConquistas / ITEMS_PER_PAGE)}` })
+          .setTimestamp();
+
+        const selectRow = generateSelectMenu(currentPage);
+        const buttonRow = generatePaginationButtons(currentPage);
+
+        await i.update({
+          content: null,
+          embeds: [embed],
+          components: [selectRow, buttonRow]
         });
         return;
       }
@@ -1834,7 +1731,9 @@ client.on('interactionCreate', async (interaction) => {
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
 
+  // Verifica se é um botão de vídeo (customId começa com 'video_')
   if (interaction.customId.startsWith('video_')) {
+    // Busca o link do vídeo no mapa
     const videoLink = videoLinksMap.get(interaction.customId);
     if (!videoLink) {
       await interaction.reply({
@@ -1844,10 +1743,11 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
+    // Envia o link do vídeo na mesma DM (ativa o player)
     try {
       await interaction.reply({
         content: videoLink,
-        ephemeral: false
+        ephemeral: false // Envia como mensagem normal (não efêmera) para ativar o player
       });
     } catch (err) {
       console.error('Erro ao enviar vídeo:', err);
