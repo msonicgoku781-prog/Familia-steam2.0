@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO FINAL (COM VERIFICAÇÃO DA FAMÍLIA)
+// BOT STEAM FAMÍLIA - VERSÃO FINAL (OTIMIZADA - SEM TIMEOUT)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1410,10 +1410,12 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM VERIFICAÇÃO DA FAMÍLIA E LOGS DE TRADUÇÃO)
+  // 🔥 COMANDO /conquista (OTIMIZADO - SEM TIMEOUT)
   // ============================================================
   if (interaction.commandName === 'conquista') {
+    // 🔥 DEFER COM EPHEMERAL LOGO NO INÍCIO
     await interaction.deferReply({ ephemeral: true });
+    
     const nomeJogoInput = interaction.options.getString('jogo').trim();
 
     // 1. Identificar o Steam ID do usuário
@@ -1477,23 +1479,39 @@ client.on('interactionCreate', async (interaction) => {
       // Para outros jogos: usa a Steam
       console.log(`🎮 Usando Steam API para: ${jogoInfo.nome} (AppID: ${appid})`);
       
-      // 🔥 VERIFICA SE ALGUM MEMBRO DA FAMÍLIA POSSUI O JOGO
+      // 🔥 OTIMIZAÇÃO: Verifica usando o banco de dados local primeiro
       let possuiNaFamilia = false;
       let donoDoJogo = null;
       
+      // Primeiro, verifica no banco de dados local (mais rápido)
       for (const sid of STEAM_IDS_ARRAY) {
-        try {
-          const ownedGames = await getOwnedGames(sid);
-          if (ownedGames.some(g => g.appid === appid)) {
-            possuiNaFamilia = true;
-            const member = MEMBROS[sid];
-            if (member) {
-              donoDoJogo = member.nome;
-            }
-            break;
+        if ((db.historicoJogos[sid] || []).includes(appid)) {
+          possuiNaFamilia = true;
+          const member = MEMBROS[sid];
+          if (member) {
+            donoDoJogo = member.nome;
           }
-        } catch (e) {
-          console.log(`⚠️ Erro ao verificar jogos de ${sid}: ${e.message}`);
+          break;
+        }
+      }
+      
+      // Se não encontrou no DB, faz a chamada à API (mais lento)
+      if (!possuiNaFamilia) {
+        console.log(`🔄 Jogo não encontrado no DB, verificando via API...`);
+        for (const sid of STEAM_IDS_ARRAY) {
+          try {
+            const ownedGames = await getOwnedGames(sid);
+            if (ownedGames.some(g => g.appid === appid)) {
+              possuiNaFamilia = true;
+              const member = MEMBROS[sid];
+              if (member) {
+                donoDoJogo = member.nome;
+              }
+              break;
+            }
+          } catch (e) {
+            console.log(`⚠️ Erro ao verificar jogos de ${sid}: ${e.message}`);
+          }
         }
       }
       
