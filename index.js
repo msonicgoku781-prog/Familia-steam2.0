@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - CORRIGIDO (SEM EDITREPLY DUPLICADO)
+// BOT STEAM FAMÍLIA - CORRIGIDO (DEFERUPDATE + FOLLOWUP)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -335,7 +335,7 @@ async function listarQuero(discordId) {
 console.log('🚀 [7] Funções /quero carregadas.');
 
 // ============================================================
-// 6. FUNÇÕES DA STEAM API
+// 6. FUNÇÕES DA STEAM API (RESUMIDAS)
 // ============================================================
 let ultimaRequisicao = 0;
 const MIN_INTERVALO = 1500;
@@ -1107,7 +1107,7 @@ client.once('clientReady', async () => {
     if (!fs.existsSync(flagFile)) {
       fs.writeFileSync(flagFile, Date.now().toString());
       const dono = await client.users.fetch(DONO_ID);
-      await dono.send('🚀 Bot Steam Família está online! (Corrigido)');
+      await dono.send('🚀 Bot Steam Família está online!');
     }
   } catch (err) {
     console.error('❌ ERRO FATAL:', err);
@@ -1436,18 +1436,20 @@ client.on('interactionCreate', async (interaction) => {
       const collector = reply.createMessageComponentCollector({ filter, time: 180000 });
 
       collector.on('collect', async (i) => {
+        // 🔥 VERIFICA SE A INTERAÇÃO É VÁLIDA
         if (!i.isRepliable()) {
-          console.log(`⚠️ [BOTÃO] Interação não pode ser respondida`);
+          console.log(`⚠️ [BOTÃO] Interação não pode ser respondida (já expirou)`);
           return;
         }
 
-        // 🔥 BOTÃO DE VÍDEO - CORRIGIDO
+        // 🔥 BOTÃO DE VÍDEO - CORRIGIDO COM DEFERUPDATE
         if (i.customId.startsWith('video_')) {
           const videoData = videoLinksMap.get(i.customId);
           
           if (!videoData) {
             try {
-              await i.reply({
+              await i.deferUpdate();
+              await i.followUp({
                 content: '❌ Dados da conquista não encontrados.',
                 flags: MessageFlags.Ephemeral
               });
@@ -1458,12 +1460,10 @@ client.on('interactionCreate', async (interaction) => {
           }
 
           try {
-            // 🔥 PRIMEIRO: RESPONDE COM "Buscando..."
-            await i.reply({
-              content: '🔍 Buscando vídeo guia... (máximo 5 segundos)',
-              flags: MessageFlags.Ephemeral
-            });
-
+            // 🔥 PRIMEIRO: USA DEFERUPDATE PARA MANTER A INTERAÇÃO VIVA
+            await i.deferUpdate();
+            console.log(`✅ [BOTÃO] DeferUpdate executado com sucesso`);
+            
             // 🔥 DEPOIS: BUSCA O VÍDEO
             const videoPromise = buscarVideoYouTube(videoData.jogo, videoData.conquista);
             const timeoutPromise = new Promise((resolve) => {
@@ -1475,7 +1475,7 @@ client.on('interactionCreate', async (interaction) => {
             
             const videoInfo = await Promise.race([videoPromise, timeoutPromise]);
             
-            // 🔥 USA FOLLOWUP EM VEZ DE EDITREPLY (evita Unknown interaction)
+            // 🔥 USA FOLLOWUP PARA ENVIAR O RESULTADO
             if (videoInfo) {
               await i.followUp({
                 content: `🎬 **Vídeo guia para "${videoData.conquista}":**\n${videoInfo.link}`,
@@ -1639,7 +1639,8 @@ client.on('interactionCreate', async (interaction) => {
     const videoData = videoLinksMap.get(interaction.customId);
     if (!videoData) {
       try {
-        await interaction.reply({
+        await interaction.deferUpdate();
+        await interaction.followUp({
           content: '❌ Dados da conquista não encontrados.',
           flags: MessageFlags.Ephemeral
         });
@@ -1648,11 +1649,8 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     try {
-      await interaction.reply({
-        content: '🔍 Buscando vídeo guia... (máximo 5 segundos)',
-        flags: MessageFlags.Ephemeral
-      });
-
+      await interaction.deferUpdate();
+      
       const videoPromise = buscarVideoYouTube(videoData.jogo, videoData.conquista);
       const timeoutPromise = new Promise((resolve) => {
         setTimeout(() => resolve(null), 5000);
