@@ -1311,7 +1311,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (SEM TRADUÇÃO - BOTÃO APENAS PARA MEGA MAN X)
+  // 🔥 COMANDO /conquista (COM FILTRO APENAS PARA MEGA MAN X)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1349,19 +1349,21 @@ client.on('interactionCreate', async (interaction) => {
     // OBTÉM A LISTA DE CONQUISTAS (MEGA MAN X JSON OU STEAM)
     // ============================================================
     if (isMegaManX && conquestMappings) {
-      // Busca conquistas já desbloqueadas (via Steam)
+      // 🔥 PARA MEGA MAN X: usa o JSON para obter os nomes das conquistas
+      // e busca quais já foram desbloqueadas via Steam API (apenas para filtrar)
       let desbloqueadas = [];
       try {
         const playerAch = await getPlayerAchievements(steamId, appid);
         desbloqueadas = playerAch.filter(c => c.achieved === 1).map(c => c.apiname);
+        console.log(`✅ ${desbloqueadas.length} conquistas já desbloqueadas para ${jogoInfo.nome}`);
       } catch (e) {
         console.warn(`⚠️ Erro ao buscar conquistas desbloqueadas: ${e.message}`);
         desbloqueadas = [];
       }
 
-      // Filtra o JSON
+      // 🔥 FILTRA O JSON: remove as conquistas que já estão desbloqueadas (pelo nome)
       conquistasList = Object.keys(conquestMappings)
-        .filter(nome => !desbloqueadas.includes(nome))
+        .filter(nome => !desbloqueadas.includes(nome)) // Só as que NÃO estão na lista de desbloqueadas
         .map(nome => ({
           name: nome,
           displayName: nome,
@@ -1370,6 +1372,8 @@ client.on('interactionCreate', async (interaction) => {
           video: conquestMappings[nome].video || null
         }));
       conquistasList.sort((a, b) => a.name.localeCompare(b.name));
+      
+      console.log(`📋 ${conquistasList.length} conquistas faltantes para Mega Man X`);
     } else {
       // Para outros jogos: usa a Steam
       const ownedGames = await getOwnedGames(steamId);
