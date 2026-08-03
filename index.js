@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - CORRIGIDO (DEFERUPDATE + FOLLOWUP)
+// BOT STEAM FAMÍLIA - SILENCIOSO (SEM MENSAGENS DE ERRO)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1107,7 +1107,7 @@ client.once('clientReady', async () => {
     if (!fs.existsSync(flagFile)) {
       fs.writeFileSync(flagFile, Date.now().toString());
       const dono = await client.users.fetch(DONO_ID);
-      await dono.send('🚀 Bot Steam Família está online!');
+      await dono.send('🚀 Bot Steam Família está online! (Silencioso)');
     }
   } catch (err) {
     console.error('❌ ERRO FATAL:', err);
@@ -1436,67 +1436,54 @@ client.on('interactionCreate', async (interaction) => {
       const collector = reply.createMessageComponentCollector({ filter, time: 180000 });
 
       collector.on('collect', async (i) => {
-        // 🔥 VERIFICA SE A INTERAÇÃO É VÁLIDA
         if (!i.isRepliable()) {
           console.log(`⚠️ [BOTÃO] Interação não pode ser respondida (já expirou)`);
           return;
         }
 
-        // 🔥 BOTÃO DE VÍDEO - CORRIGIDO COM DEFERUPDATE
+        // 🔥 BOTÃO DE VÍDEO - SILENCIOSO
         if (i.customId.startsWith('video_')) {
           const videoData = videoLinksMap.get(i.customId);
           
           if (!videoData) {
             try {
               await i.deferUpdate();
-              await i.followUp({
-                content: '❌ Dados da conquista não encontrados.',
-                flags: MessageFlags.Ephemeral
-              });
             } catch (e) {
-              console.log(`⚠️ Erro ao responder: ${e.message}`);
+              console.log(`⚠️ Erro ao fazer deferUpdate: ${e.message}`);
             }
             return;
           }
 
           try {
-            // 🔥 PRIMEIRO: USA DEFERUPDATE PARA MANTER A INTERAÇÃO VIVA
+            // 🔥 DEFERUPDATE SILENCIOSO
             await i.deferUpdate();
-            console.log(`✅ [BOTÃO] DeferUpdate executado com sucesso`);
+            console.log(`✅ [BOTÃO] DeferUpdate executado para "${videoData.conquista}"`);
             
-            // 🔥 DEPOIS: BUSCA O VÍDEO
+            // 🔥 BUSCA O VÍDEO
             const videoPromise = buscarVideoYouTube(videoData.jogo, videoData.conquista);
             const timeoutPromise = new Promise((resolve) => {
               setTimeout(() => {
-                console.log(`⏰ TIMEOUT: 5 segundos`);
+                console.log(`⏰ TIMEOUT: 5 segundos para "${videoData.conquista}"`);
                 resolve(null);
               }, 5000);
             });
             
             const videoInfo = await Promise.race([videoPromise, timeoutPromise]);
             
-            // 🔥 USA FOLLOWUP PARA ENVIAR O RESULTADO
+            // 🔥 SÓ MOSTRA SE ENCONTROU O VÍDEO
             if (videoInfo) {
               await i.followUp({
                 content: `🎬 **Vídeo guia para "${videoData.conquista}":**\n${videoInfo.link}`,
                 flags: MessageFlags.Ephemeral
               });
+              console.log(`✅ [BOTÃO] Vídeo enviado para "${videoData.conquista}"`);
             } else {
-              await i.followUp({
-                content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}" em "${videoData.jogo}".\n\n💡 Tente buscar manualmente:\n\`${videoData.conquista} ${videoData.jogo} trophy\``,
-                flags: MessageFlags.Ephemeral
-              });
+              // 🔥 NÃO MOSTRA NADA - SILENCIOSO
+              console.log(`ℹ️ [BOTÃO] Nenhum vídeo encontrado para "${videoData.conquista}" - sem mensagem`);
             }
           } catch (error) {
             console.error(`❌ Erro no botão de vídeo:`, error);
-            try {
-              await i.followUp({
-                content: '❌ Erro ao buscar vídeo. Tente novamente.',
-                flags: MessageFlags.Ephemeral
-              });
-            } catch (e) {
-              console.log(`⚠️ Não foi possível responder: ${e.message}`);
-            }
+            // 🔥 NÃO MOSTRA NADA - SILENCIOSO
           }
           return;
         }
@@ -1625,7 +1612,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 17. FALLBACK PARA BOTÕES
+// 17. FALLBACK PARA BOTÕES - SILENCIOSO
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
@@ -1640,15 +1627,12 @@ client.on('interactionCreate', async (interaction) => {
     if (!videoData) {
       try {
         await interaction.deferUpdate();
-        await interaction.followUp({
-          content: '❌ Dados da conquista não encontrados.',
-          flags: MessageFlags.Ephemeral
-        });
       } catch (e) {}
       return;
     }
 
     try {
+      // 🔥 DEFERUPDATE SILENCIOSO
       await interaction.deferUpdate();
       
       const videoPromise = buscarVideoYouTube(videoData.jogo, videoData.conquista);
@@ -1658,25 +1642,17 @@ client.on('interactionCreate', async (interaction) => {
       
       const videoInfo = await Promise.race([videoPromise, timeoutPromise]);
       
+      // 🔥 SÓ MOSTRA SE ENCONTROU O VÍDEO
       if (videoInfo) {
         await interaction.followUp({
           content: `🎬 **Vídeo guia para "${videoData.conquista}":**\n${videoInfo.link}`,
           flags: MessageFlags.Ephemeral
         });
-      } else {
-        await interaction.followUp({
-          content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}".\n\n💡 Tente buscar manualmente:\n\`${videoData.conquista} ${videoData.jogo} trophy\``,
-          flags: MessageFlags.Ephemeral
-        });
       }
+      // 🔥 SE NÃO ENCONTROU, NÃO MOSTRA NADA
     } catch (error) {
       console.error(`❌ [FALLBACK] Erro:`, error);
-      try {
-        await interaction.followUp({
-          content: '❌ Erro ao buscar vídeo. Tente novamente.',
-          flags: MessageFlags.Ephemeral
-        });
-      } catch (e) {}
+      // 🔥 NÃO MOSTRA NADA - SILENCIOSO
     }
   }
 });
