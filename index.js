@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - COM CACHE PERSISTENTE NO DISCORD
+// BOT STEAM FAMÍLIA - COM CACHE PERSISTENTE NO DISCORD (CORRIGIDO)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -164,7 +164,46 @@ async function salvarDBNoCanal() {
 }
 
 // ============================================================
-// 4.1 CACHE DE VÍDEOS (PERSISTENTE NO DISCORD)
+// 4.1 FUNÇÃO inicializarDB (CORRIGIDA)
+// ============================================================
+async function inicializarDB() {
+  const dados = await carregarDBDoCanal();
+  if (dados) {
+    db = dados;
+    if (!db.ranking) db.ranking = {};
+    if (!db.conquistas) db.conquistas = {};
+    if (!db.historicoJogos) db.historicoJogos = {};
+    if (!db.ultimaMensagemRankingId) db.ultimaMensagemRankingId = null;
+    if (!db.lancamentosNotificados) db.lancamentosNotificados = {};
+    if (!db.jogosSemConquistas) db.jogosSemConquistas = {};
+    if (!db.rankingVersion) db.rankingVersion = 0;
+    if (db.rankingVersion < RANKING_VERSION) {
+      for (const [steamId, jogos] of Object.entries(RANKING_VALUES)) {
+        const member = MEMBROS[steamId];
+        if (member && db.ranking[steamId]) {
+          db.ranking[steamId].jogos = jogos;
+        } else if (member && !db.ranking[steamId]) {
+          db.ranking[steamId] = {
+            nome: member.nome,
+            jogos: jogos,
+            steamId: steamId,
+            discordId: member.discordId
+          };
+        }
+      }
+      db.rankingVersion = RANKING_VERSION;
+      await salvarDBNoCanal();
+    }
+    console.log(`💾 Banco de dados carregado do anexo (versão ${db.rankingVersion})`);
+  } else {
+    db = criarDBInicial();
+    await salvarDBNoCanal();
+    console.log('📊 Banco de dados inicial criado como anexo no canal.');
+  }
+}
+
+// ============================================================
+// 4.2 CACHE DE VÍDEOS (PERSISTENTE NO DISCORD)
 // ============================================================
 async function carregarVideoCache() {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
@@ -185,7 +224,6 @@ async function carregarVideoCache() {
         return;
       }
     }
-    // Se não encontrou, cria um cache vazio
     videoCache = {};
     console.log('📊 Cache de vídeos inicializado (vazio)');
   } catch (e) {
@@ -1421,6 +1459,7 @@ client.once('clientReady', async () => {
   console.log(`📜 Canal de regras: <#${RULES_CHANNEL}> (envio manual via /regras)`);
 
   try {
+    // 🔥 INICIALIZA O BANCO DE DADOS
     await inicializarDB();
     
     // 🔥 CARREGA O CACHE DE VÍDEOS DO DISCORD
