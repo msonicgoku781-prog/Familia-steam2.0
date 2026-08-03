@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM BUSCA DE VÍDEOS NO YOUTUBE (SIMPLIFICADA)
+// BOT STEAM FAMÍLIA - VERSÃO COM BUSCA ASSERTIVA DE VÍDEOS
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1050,7 +1050,7 @@ async function checkAchievements() {
 console.log('🚀 [11] Tarefas periódicas carregadas.');
 
 // ============================================================
-// 12. FUNÇÃO DE BUSCA DE VÍDEOS NO YOUTUBE (SIMPLIFICADA)
+// 12. FUNÇÃO DE BUSCA DE VÍDEOS NO YOUTUBE (ASSERTIVA)
 // ============================================================
 async function buscarVideoYouTube(nomeJogo, nomeConquista) {
   if (!YOUTUBE_API_KEY) {
@@ -1065,15 +1065,13 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
     
     console.log(`🎯 Buscando vídeo para: "${nomeJogoLimpo}" - "${nomeConquistaLimpo}"`);
 
-    // Termos de busca variados (do mais específico ao mais genérico)
+    // Termos de busca iguais ao que você faz manualmente
     const termosBusca = [
+      `"${nomeConquistaLimpo}" "${nomeJogoLimpo}" trophy`,
+      `"${nomeConquistaLimpo}" "${nomeJogoLimpo}" achievement`,
+      `"${nomeConquistaLimpo}" "${nomeJogoLimpo}" guia`,
       `${nomeConquistaLimpo} ${nomeJogoLimpo} trophy`,
       `${nomeConquistaLimpo} ${nomeJogoLimpo} achievement`,
-      `${nomeJogoLimpo} ${nomeConquistaLimpo} guide`,
-      `${nomeConquistaLimpo} ${nomeJogoLimpo}`,
-      `${nomeJogoLimpo} ${nomeConquistaLimpo}`,
-      `${nomeJogoLimpo} all achievements`,
-      `${nomeJogoLimpo} trophy guide`
     ];
 
     let todosVideos = [];
@@ -1089,17 +1087,24 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
             maxResults: 5,
             q: termo,
             key: YOUTUBE_API_KEY,
-            order: 'relevance'
+            order: 'relevance',
+            relevanceLanguage: 'pt,en'
           },
-          timeout: 8000
+          timeout: 6000
         });
 
         if (response.data.items?.length > 0) {
-          console.log(`✅ Encontrou ${response.data.items.length} vídeos`);
+          console.log(`✅ Encontrou ${response.data.items.length} vídeos para "${termo}"`);
           todosVideos = todosVideos.concat(response.data.items);
+          
+          // Se encontrou com busca exata (aspas), para de buscar
+          if (termo.includes('"') && response.data.items.length > 0) {
+            console.log(`🎯 Busca exata encontrou resultados, parando...`);
+            break;
+          }
         }
       } catch (e) {
-        console.log(`⚠️ Erro: ${e.message}`);
+        console.log(`⚠️ Erro no termo "${termo}": ${e.message}`);
       }
     }
 
@@ -1118,14 +1123,14 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
 
     console.log(`📊 Total de vídeos únicos: ${videosUnicos.length}`);
 
-    // Busca visualizações
+    // Buscar detalhes dos vídeos (duração e views)
     const videoIds = videosUnicos.map(item => item.id.videoId).join(',');
     let statsResponse = null;
     
     try {
       statsResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
         params: {
-          part: 'statistics',
+          part: 'statistics,contentDetails',
           id: videoIds,
           key: YOUTUBE_API_KEY
         },
@@ -1135,49 +1140,105 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
       console.log(`⚠️ Erro nas estatísticas: ${e.message}`);
     }
 
-    // Monta lista com visualizações
-    let videosComViews = videosUnicos.map(item => {
+    // Calcular pontuação para cada vídeo
+    let videosComScore = videosUnicos.map(item => {
       let views = 0;
+      let duracaoSegundos = 9999;
+
       if (statsResponse?.data?.items) {
-        const detail = statsResponse.data.items.find(d => d.id === item.id.videoId);
-        if (detail?.statistics) {
-          views = parseInt(detail.statistics.viewCount) || 0;
+        const detalhesVideo = statsResponse.data.items.find(d => d.id === item.id.videoId);
+        if (detalhesVideo) {
+          if (detalhesVideo.statistics) {
+            views = parseInt(detalhesVideo.statistics.viewCount) || 0;
+          }
+          if (detalhesVideo.contentDetails) {
+            duracaoSegundos = converterDuracaoISO(detalhesVideo.contentDetails.duration);
+          }
+        }
+      }
+
+      const titulo = item.snippet.title;
+      const tituloLower = titulo.toLowerCase();
+      const conquistaLower = nomeConquistaLimpo.toLowerCase();
+      const jogoLower = nomeJogoLimpo.toLowerCase();
+      
+      // PONTUAÇÃO
+      let score = 0;
+      
+      // 1. Título contém a conquista (mais importante)
+      if (tituloLower.includes(conquistaLower)) {
+        score += 100;
+        if (tituloLower.startsWith(conquistaLower)) {
+          score += 50;
         }
       }
       
-      // Verifica se o título contém palavras-chave (para priorizar)
-      const tituloLower = item.snippet.title.toLowerCase();
-      const temJogo = tituloLower.includes(nomeJogoLimpo.toLowerCase());
-      const temConquista = tituloLower.includes(nomeConquistaLimpo.toLowerCase());
-      const temTrophy = tituloLower.includes('trophy') || tituloLower.includes('achievement');
+      // 2. Título contém o jogo
+      if (tituloLower.includes(jogoLower)) {
+        score += 30;
+      }
       
+      // 3. Palavras-chave
+      if (tituloLower.includes('trophy')) score += 20;
+      if (tituloLower.includes('achievement')) score += 20;
+      if (tituloLower.includes('guia') || tituloLower.includes('guide')) score += 15;
+      
+      // 4. Duração (vídeos mais curtos são melhores)
+      if (duracaoSegundos >= 60 && duracaoSegundos <= 300) {
+        score += 30; // 1-5 minutos - PERFEITO
+      } else if (duracaoSegundos > 300 && duracaoSegundos <= 480) {
+        score += 20; // 5-8 minutos - BOM
+      } else if (duracaoSegundos > 480 && duracaoSegundos <= 600) {
+        score += 10; // 8-10 minutos - ACEITÁVEL
+      } else if (duracaoSegundos > 600) {
+        score -= 30; // Mais de 10 minutos - PENALIDADE
+      }
+      
+      // 5. Visualizações (bônus pequeno)
+      if (views > 10000) score += 5;
+      else if (views > 5000) score += 3;
+      else if (views > 1000) score += 1;
+
+      console.log(`📊 "${titulo.substring(0, 40)}..." - Score: ${score}, ⏱️ ${Math.round(duracaoSegundos/60)}min, 👁️ ${views.toLocaleString()}`);
+
       return {
         id: item.id.videoId,
-        titulo: item.snippet.title,
+        titulo: titulo,
         canal: item.snippet.channelTitle,
         link: `https://www.youtube.com/watch?v=${item.id.videoId}`,
         views: views,
-        // Score: prioriza vídeos com o nome do jogo e da conquista
-        score: (temJogo ? 10 : 0) + (temConquista ? 8 : 0) + (temTrophy ? 5 : 0) + Math.min(views / 1000, 10)
+        duracao: duracaoSegundos,
+        score: score
       };
     });
 
-    // Ordena por score (relevância + visualizações)
-    videosComViews.sort((a, b) => b.score - a.score);
+    // Filtra vídeos que tem a conquista no título
+    const videosComConquista = videosComScore.filter(v => 
+      v.titulo.toLowerCase().includes(nomeConquistaLimpo.toLowerCase())
+    );
+
+    // Se tiver vídeos com a conquista, usa só eles
+    const videosFinais = videosComConquista.length > 0 ? videosComConquista : videosComScore;
+
+    // Ordena por score (maior primeiro)
+    videosFinais.sort((a, b) => b.score - a.score);
 
     // Mostra os melhores resultados
     console.log(`📊 Top 5 vídeos:`);
-    videosComViews.slice(0, 5).forEach((v, i) => {
+    videosFinais.slice(0, 5).forEach((v, i) => {
       console.log(`  ${i+1}. "${v.titulo.substring(0, 50)}..."`);
-      console.log(`     👁️ ${v.views.toLocaleString()} views | 🎯 Score: ${v.score.toFixed(1)}`);
+      console.log(`     🎯 Score: ${v.score} | ⏱️ ${Math.round(v.duracao/60)}min | 👁️ ${v.views.toLocaleString()}`);
+      console.log(`     🔗 ${v.link}`);
     });
 
     // Retorna o melhor vídeo
-    const videoEscolhido = videosComViews[0];
+    const videoEscolhido = videosFinais[0];
     
     if (videoEscolhido) {
-      console.log(`✅ Vídeo escolhido: "${videoEscolhido.titulo}"`);
+      console.log(`✅ VÍDEO ESCOLHIDO: "${videoEscolhido.titulo}"`);
+      console.log(`⏱️ Duração: ${Math.round(videoEscolhido.duracao/60)} minutos`);
       console.log(`👁️ Visualizações: ${videoEscolhido.views.toLocaleString()}`);
+      console.log(`🔗 ${videoEscolhido.link}`);
       return videoEscolhido;
     }
 
@@ -1186,6 +1247,16 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
     console.error('❌ Erro na busca:', error.message);
     return null;
   }
+}
+
+// Função auxiliar para converter duração ISO 8601 para segundos
+function converterDuracaoISO(duracao) {
+  if (!duracao) return 9999;
+  const match = duracao.match(/PT(\d+H)?(\d+M)?(\d+S)?/);
+  const hours = parseInt(match?.[1]) || 0;
+  const minutes = parseInt(match?.[2]) || 0;
+  const seconds = parseInt(match?.[3]) || 0;
+  return hours * 3600 + minutes * 60 + seconds;
 }
 
 console.log('🚀 [12] Função de busca de vídeos carregada.');
@@ -1252,9 +1323,10 @@ async function carregarMapeamentoDoCanal(channel) {
 }
 
 // ============================================================
-// 15. EVENTO clientReady
+// 15. EVENTO clientReady (CORRIGIDO - SEM MENSAGEM DUPLICADA)
 // ============================================================
 let botIniciado = false;
+const flagFile = path.join(__dirname, 'bot_started.flag');
 
 client.once('clientReady', async () => {
   console.log(`✅ Bot online como ${client.user.tag}`);
@@ -1338,14 +1410,27 @@ client.once('clientReady', async () => {
     setInterval(verificarPromocoesQuero, 5 * 60 * 1000);
     console.log('🔄 Monitorando conquistas a cada 30s, novos jogos a cada 5min.');
 
-    if (!botIniciado) {
-      botIniciado = true;
-      try {
+    // 🔥 CORREÇÃO: Só envia mensagem uma vez usando um arquivo de controle
+    try {
+      if (!fs.existsSync(flagFile)) {
+        fs.writeFileSync(flagFile, Date.now().toString());
         const dono = await client.users.fetch(DONO_ID);
-        await dono.send('🚀 Bot Steam Família está online! Busca automática de vídeos guia no YouTube adicionada!');
+        await dono.send('🚀 Bot Steam Família está online! Busca assertiva de vídeos guia no YouTube adicionada!');
         console.log('✅ Mensagem de inicialização enviada ao dono.');
-      } catch (err) {
-        console.log('⚠️ Não foi possível enviar mensagem ao dono:', err.message);
+      } else {
+        console.log('ℹ️ Mensagem de inicialização já foi enviada anteriormente.');
+      }
+    } catch (err) {
+      console.log('⚠️ Erro ao verificar flag de inicialização:', err.message);
+      if (!botIniciado) {
+        botIniciado = true;
+        try {
+          const dono = await client.users.fetch(DONO_ID);
+          await dono.send('🚀 Bot Steam Família está online! Busca assertiva de vídeos guia no YouTube adicionada!');
+          console.log('✅ Mensagem de inicialização enviada ao dono.');
+        } catch (err2) {
+          console.log('⚠️ Não foi possível enviar mensagem ao dono:', err2.message);
+        }
       }
     }
   } catch (err) {
@@ -1553,10 +1638,13 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista - COM BUSCA AUTOMÁTICA DE VÍDEOS
+  // 🔥 COMANDO /conquista - COM BUSCA ASSERTIVA DE VÍDEOS
   // ============================================================
   if (interaction.commandName === 'conquista') {
+    // 🔥 RESPOSTA RÁPIDA PARA EVITAR TIMEOUT
     await interaction.deferReply({ ephemeral: true });
+    await interaction.editReply('🔍 Buscando informações do jogo... Aguarde um momento.');
+    
     const nomeJogoInput = interaction.options.getString('jogo').trim();
 
     // 1. Buscar o jogo na Steam
@@ -1749,7 +1837,6 @@ client.on('interactionCreate', async (interaction) => {
           
           if (videoInfo) {
             console.log(`✅ Vídeo encontrado: ${videoInfo.link}`);
-            // Usa um ID único baseado no nome da conquista
             const videoId = `video_${ach.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
             videoLinksMap.set(videoId, videoInfo.link);
             
@@ -1854,10 +1941,14 @@ client.on('interactionCreate', async (interaction) => {
     const selectRow = generateSelectMenu(0);
     const buttonRow = generatePaginationButtons(0);
 
-    const reply = await interaction.editReply({
+    // 🔥 ATUALIZA A MENSAGEM COM OS RESULTADOS
+    await interaction.editReply({
+      content: null,
       embeds: [embedResumo],
       components: [selectRow, buttonRow]
     });
+
+    const reply = await interaction.fetchReply();
 
     // 11. Collector para interações
     const filter = i => i.user.id === interaction.user.id;
@@ -2004,7 +2095,6 @@ client.on('interactionCreate', async (interaction) => {
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
 
-  // Se for um botão de vídeo que não foi capturado pelo collector
   if (interaction.customId.startsWith('video_')) {
     const videoLink = videoLinksMap.get(interaction.customId);
     if (!videoLink) {
