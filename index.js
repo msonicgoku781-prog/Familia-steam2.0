@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO FINAL (SEM MENSAGEM DE INICIALIZAÇÃO)
+// BOT STEAM FAMÍLIA - VERSÃO FINAL (COM VERIFICAÇÃO DA FAMÍLIA)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1203,8 +1203,7 @@ client.once('clientReady', async () => {
     setInterval(verificarPromocoesQuero, 5 * 60 * 1000);
     console.log('🔄 Monitorando conquistas a cada 30s, novos jogos a cada 5min.');
 
-    // 🔥 REMOVIDO: Mensagem "Bot Steam Família está online!" NÃO será mais enviada
-    console.log('✅ Bot inicializado com sucesso (sem mensagem para o dono).');
+    console.log('✅ Bot inicializado com sucesso.');
 
   } catch (err) {
     console.error('❌ ERRO FATAL NO EVENTO clientReady:', err);
@@ -1411,7 +1410,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM LOGS DE TRADUÇÃO)
+  // 🔥 COMANDO /conquista (COM VERIFICAÇÃO DA FAMÍLIA E LOGS DE TRADUÇÃO)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1477,12 +1476,33 @@ client.on('interactionCreate', async (interaction) => {
     } else {
       // Para outros jogos: usa a Steam
       console.log(`🎮 Usando Steam API para: ${jogoInfo.nome} (AppID: ${appid})`);
-      const ownedGames = await getOwnedGames(steamId);
-      const possui = ownedGames.some(g => g.appid === appid);
-      if (!possui) {
-        await interaction.editReply(`❌ Você **não possui** **${jogoInfo.nome}** na sua biblioteca.`);
+      
+      // 🔥 VERIFICA SE ALGUM MEMBRO DA FAMÍLIA POSSUI O JOGO
+      let possuiNaFamilia = false;
+      let donoDoJogo = null;
+      
+      for (const sid of STEAM_IDS_ARRAY) {
+        try {
+          const ownedGames = await getOwnedGames(sid);
+          if (ownedGames.some(g => g.appid === appid)) {
+            possuiNaFamilia = true;
+            const member = MEMBROS[sid];
+            if (member) {
+              donoDoJogo = member.nome;
+            }
+            break;
+          }
+        } catch (e) {
+          console.log(`⚠️ Erro ao verificar jogos de ${sid}: ${e.message}`);
+        }
+      }
+      
+      if (!possuiNaFamilia) {
+        await interaction.editReply(`❌ **${jogoInfo.nome}** não está na biblioteca da família.`);
         return;
       }
+      
+      console.log(`✅ Jogo encontrado na família! Dono: ${donoDoJogo || 'desconhecido'}`);
 
       let schemaData;
       try {
