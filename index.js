@@ -1054,46 +1054,76 @@ console.log('🚀 [11] Tarefas periódicas carregadas.');
 // ============================================================
 async function buscarVideoYouTube(nomeJogo, nomeConquista) {
   if (!YOUTUBE_API_KEY) {
-    console.warn('⚠️ YOUTUBE_API_KEY não definida. Não é possível buscar vídeos.');
+    console.warn('⚠️ YOUTUBE_API_KEY não definida.');
     return null;
   }
 
   try {
-    // Remove caracteres especiais e formata a busca
+    // Limpa os nomes
     const nomeJogoLimpo = nomeJogo.replace(/[^\w\s]/gi, '').trim();
     const nomeConquistaLimpo = nomeConquista.replace(/[^\w\s]/gi, '').trim();
     
-    // Termo de busca simplificado
-    const termoBusca = `${nomeJogoLimpo} ${nomeConquistaLimpo} trophy achievement guide`;
-    
-    console.log(`🔍 Buscando no YouTube: "${termoBusca}"`);
-    
-    const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
-      params: {
-        part: 'snippet',
-        type: 'video',
-        maxResults: 5,
-        q: termoBusca,
-        key: YOUTUBE_API_KEY,
-        relevanceLanguage: 'pt,en',
-        videoDuration: 'medium'
-      },
-      timeout: 8000
-    });
+    console.log(`🎯 Buscando vídeo para: "${nomeJogoLimpo}" - "${nomeConquistaLimpo}"`);
 
-    if (!response.data.items || response.data.items.length === 0) {
-      console.log(`⚠️ Nenhum resultado para: "${termoBusca}"`);
+    // Termos de busca variados (do mais específico ao mais genérico)
+    const termosBusca = [
+      `${nomeConquistaLimpo} ${nomeJogoLimpo} trophy`,
+      `${nomeConquistaLimpo} ${nomeJogoLimpo} achievement`,
+      `${nomeJogoLimpo} ${nomeConquistaLimpo} guide`,
+      `${nomeConquistaLimpo} ${nomeJogoLimpo}`,
+      `${nomeJogoLimpo} ${nomeConquistaLimpo}`,
+      `${nomeJogoLimpo} all achievements`,
+      `${nomeJogoLimpo} trophy guide`
+    ];
+
+    let todosVideos = [];
+
+    for (const termo of termosBusca) {
+      try {
+        console.log(`🔍 Buscando: "${termo}"`);
+        
+        const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+          params: {
+            part: 'snippet',
+            type: 'video',
+            maxResults: 5,
+            q: termo,
+            key: YOUTUBE_API_KEY,
+            order: 'relevance'
+          },
+          timeout: 8000
+        });
+
+        if (response.data.items?.length > 0) {
+          console.log(`✅ Encontrou ${response.data.items.length} vídeos`);
+          todosVideos = todosVideos.concat(response.data.items);
+        }
+      } catch (e) {
+        console.log(`⚠️ Erro: ${e.message}`);
+      }
+    }
+
+    if (todosVideos.length === 0) {
+      console.log(`❌ Nenhum vídeo encontrado`);
       return null;
     }
 
-    console.log(`📊 Encontrados ${response.data.items.length} vídeos, buscando visualizações...`);
+    // Remove duplicatas
+    const idsVistos = new Set();
+    const videosUnicos = todosVideos.filter(item => {
+      if (idsVistos.has(item.id.videoId)) return false;
+      idsVistos.add(item.id.videoId);
+      return true;
+    });
 
-    // Buscar detalhes de TODOS os vídeos (visualizações)
-    const videoIds = response.data.items.map(item => item.id.videoId).join(',');
+    console.log(`📊 Total de vídeos únicos: ${videosUnicos.length}`);
+
+    // Busca visualizações
+    const videoIds = videosUnicos.map(item => item.id.videoId).join(',');
+    let statsResponse = null;
     
-    let videoDetails = null;
     try {
-      const detailsResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
+      statsResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
         params: {
           part: 'statistics',
           id: videoIds,
@@ -1101,52 +1131,59 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
         },
         timeout: 5000
       });
-      videoDetails = detailsResponse.data.items;
     } catch (e) {
-      console.log(`⚠️ Erro ao buscar detalhes dos vídeos:`, e.message);
+      console.log(`⚠️ Erro nas estatísticas: ${e.message}`);
     }
 
-    // Criar lista com todos os vídeos e suas visualizações
-    let videosComViews = response.data.items.map(item => {
+    // Monta lista com visualizações
+    let videosComViews = videosUnicos.map(item => {
       let views = 0;
-      if (videoDetails) {
-        const detail = videoDetails.find(d => d.id === item.id.videoId);
-        if (detail && detail.statistics) {
+      if (statsResponse?.data?.items) {
+        const detail = statsResponse.data.items.find(d => d.id === item.id.videoId);
+        if (detail?.statistics) {
           views = parseInt(detail.statistics.viewCount) || 0;
         }
       }
+      
+      // Verifica se o título contém palavras-chave (para priorizar)
+      const tituloLower = item.snippet.title.toLowerCase();
+      const temJogo = tituloLower.includes(nomeJogoLimpo.toLowerCase());
+      const temConquista = tituloLower.includes(nomeConquistaLimpo.toLowerCase());
+      const temTrophy = tituloLower.includes('trophy') || tituloLower.includes('achievement');
+      
       return {
         id: item.id.videoId,
         titulo: item.snippet.title,
-        descricao: item.snippet.description,
         canal: item.snippet.channelTitle,
-        thumbnail: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default?.url,
         link: `https://www.youtube.com/watch?v=${item.id.videoId}`,
-        views: views
+        views: views,
+        // Score: prioriza vídeos com o nome do jogo e da conquista
+        score: (temJogo ? 10 : 0) + (temConquista ? 8 : 0) + (temTrophy ? 5 : 0) + Math.min(views / 1000, 10)
       };
     });
 
-    // Ordenar por visualizações (maior primeiro)
-    videosComViews.sort((a, b) => b.views - a.views);
+    // Ordena por score (relevância + visualizações)
+    videosComViews.sort((a, b) => b.score - a.score);
 
-    // Mostrar os vídeos encontrados
-    console.log(`📊 Vídeos encontrados (ordenados por visualizações):`);
-    videosComViews.forEach((v, i) => {
-      console.log(`  ${i+1}. "${v.titulo.substring(0, 50)}..." - ${v.views.toLocaleString()} views`);
+    // Mostra os melhores resultados
+    console.log(`📊 Top 5 vídeos:`);
+    videosComViews.slice(0, 5).forEach((v, i) => {
+      console.log(`  ${i+1}. "${v.titulo.substring(0, 50)}..."`);
+      console.log(`     👁️ ${v.views.toLocaleString()} views | 🎯 Score: ${v.score.toFixed(1)}`);
     });
 
-    // Pegar o vídeo com MAIS visualizações
+    // Retorna o melhor vídeo
     const videoEscolhido = videosComViews[0];
     
     if (videoEscolhido) {
-      console.log(`✅ Vídeo escolhido: "${videoEscolhido.titulo}" - ${videoEscolhido.views.toLocaleString()} views`);
-      console.log(`🔗 Link: ${videoEscolhido.link}`);
+      console.log(`✅ Vídeo escolhido: "${videoEscolhido.titulo}"`);
+      console.log(`👁️ Visualizações: ${videoEscolhido.views.toLocaleString()}`);
       return videoEscolhido;
     }
 
     return null;
   } catch (error) {
-    console.error('❌ Erro ao buscar vídeo no YouTube:', error.message);
+    console.error('❌ Erro na busca:', error.message);
     return null;
   }
 }
