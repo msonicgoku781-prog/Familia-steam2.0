@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - COM CACHE PERSISTENTE (CORRIGIDO)
+// BOT STEAM FAMÍLIA - COM TIMEOUTS E CORREÇÕES
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -163,9 +163,6 @@ async function salvarDBNoCanal() {
   }
 }
 
-// ============================================================
-// 4.1 FUNÇÃO inicializarDB
-// ============================================================
 async function inicializarDB() {
   const dados = await carregarDBDoCanal();
   if (dados) {
@@ -273,7 +270,6 @@ async function getVideoFromCache(jogo, conquista) {
 async function saveVideoToCache(jogo, conquista, videoInfo) {
   const key = `${jogo}|${conquista}`.toLowerCase();
   videoCache[key] = videoInfo;
-  // Salva o cache no Discord (assíncrono, não espera)
   salvarVideoCache().catch(e => console.error('❌ Erro ao salvar cache:', e));
   console.log(`✅ [CACHE] Vídeo salvo no cache persistente para "${conquista}"`);
 }
@@ -350,7 +346,7 @@ async function listarQuero(discordId) {
 console.log('🚀 [7] Funções /quero carregadas.');
 
 // ============================================================
-// 6. FUNÇÕES DA STEAM API (VERSÃO RESUMIDA PARA CABER NO LIMITE)
+// 6. FUNÇÕES DA STEAM API (RESUMIDAS)
 // ============================================================
 let ultimaRequisicao = 0;
 const MIN_INTERVALO = 1500;
@@ -391,13 +387,10 @@ async function fetchSteam(url, params = {}, retries = 3) {
 }
 
 async function getOwnedGames(steamId) {
-  const inicio = Date.now();
-  console.log(`⏱️ [getOwnedGames] Iniciando para ${steamId}`);
   const data = await fetchSteam(
     'https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/',
     { steamid: steamId, include_appinfo: true, include_shared_games: true, format: 'json' }
   );
-  console.log(`⏱️ [getOwnedGames] Concluído em ${Date.now() - inicio}ms`);
   return data?.response?.games || [];
 }
 
@@ -410,13 +403,10 @@ async function getRecentlyPlayedGames(steamId, limit = 3) {
 }
 
 async function getPlayerAchievements(steamId, appId) {
-  const inicio = Date.now();
-  console.log(`⏱️ [getPlayerAchievements] Iniciando para ${steamId} - App ${appId}`);
   const data = await fetchSteam(
     'https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/',
     { steamid: steamId, appid: appId, format: 'json' }
   );
-  console.log(`⏱️ [getPlayerAchievements] Concluído em ${Date.now() - inicio}ms`);
   return data?.playerstats?.achievements || [];
 }
 
@@ -434,14 +424,11 @@ async function getGameDetails(appId) {
 }
 
 async function searchGameOnSteam(query) {
-  const inicio = Date.now();
-  console.log(`⏱️ [searchGameOnSteam] Iniciando para "${query}"`);
   const data = await fetchSteam(
     'https://store.steampowered.com/api/storesearch',
     { term: query, l: 'portuguese', cc: 'BR' },
     1
   );
-  console.log(`⏱️ [searchGameOnSteam] Concluído em ${Date.now() - inicio}ms`);
   if (data?.items?.length) {
     const item = data.items[0];
     return {
@@ -549,17 +536,8 @@ const translationCache = new Map();
 
 async function traduzirTexto(texto, targetLang = 'pt') {
   if (!texto || texto.length < 3) return texto;
-  
-  const palavras = texto.split(' ');
-  let acentos = 0;
-  for (const palavra of palavras) {
-    if (/[áàâãéêíóôõúç]/i.test(palavra)) acentos++;
-  }
-  if (acentos > 1) return texto;
-
   const cacheKey = `${texto}_${targetLang}`;
   if (translationCache.has(cacheKey)) return translationCache.get(cacheKey);
-
   try {
     const url = 'https://api.mymemory.translated.net/get';
     const response = await axios.get(url, {
@@ -761,7 +739,7 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 10. VERIFICAÇÃO DE CONQUISTAS (MONITORAMENTO)
+// 10. VERIFICAÇÃO DE CONQUISTAS E TAREFAS (RESUMIDO)
 // ============================================================
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length) return;
@@ -835,111 +813,6 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   }
 }
 
-// ============================================================
-// 11. VERIFICAÇÃO DE NOVOS JOGOS E TAREFAS
-// ============================================================
-async function verificarLancamentosQuero() {
-  try {
-    const channel = client.channels.cache.get(QUERO_CHANNEL);
-    if (!channel) return;
-    const messages = await channel.messages.fetch({ limit: 100 });
-    const queroMessages = messages.filter(m => m.content.startsWith('QUERO_'));
-    for (const [, msg] of queroMessages) {
-      const discordId = msg.content.split(':')[0].replace('QUERO_', '');
-      const lista = await loadQueroList(discordId);
-      if (!lista.length) continue;
-      let usuario;
-      try { usuario = await client.users.fetch(discordId); } catch (_) { continue; }
-      for (const jogo of lista) {
-        const chave = `${discordId}_${jogo.appid}`;
-        if (db.lancamentosNotificados?.[chave]) continue;
-        if (jogo.coming_soon === false) continue;
-        const detalhes = await getGameDetails(jogo.appid);
-        if (!detalhes) continue;
-        const isComingSoon = detalhes.release_date?.coming_soon;
-        const hasPrice = !!detalhes.price_overview;
-        const isAvailable = (isComingSoon === false) && hasPrice;
-        if (jogo.coming_soon === true && isAvailable) {
-          const embed = new EmbedBuilder()
-            .setColor(0x00FF00)
-            .setTitle(`🎮 ${jogo.nome} FOI LANÇADO!`)
-            .setURL(jogo.link)
-            .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/header.jpg`)
-            .addFields(
-              { name: '💰 Preço', value: detalhes.price_overview?.final_formatted || 'Ver na loja', inline: true },
-              { name: '🔗 Link', value: `[Comprar na Steam](${jogo.link})`, inline: false }
-            )
-            .setFooter({ text: 'Steam Família - Lançamentos /quero' })
-            .setTimestamp();
-          try {
-            await usuario.send({ embeds: [embed] });
-            if (!db.lancamentosNotificados) db.lancamentosNotificados = {};
-            db.lancamentosNotificados[chave] = Date.now();
-            jogo.coming_soon = false;
-            await saveQueroList(discordId, lista);
-          } catch (err) {
-            console.error(`❌ Erro ao enviar DM para ${usuario.username}:`, err.message);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.error('❌ Erro em verificarLancamentosQuero:', err);
-  }
-}
-
-async function verificarPromocoesQuero() {
-  try {
-    const channel = client.channels.cache.get(QUERO_CHANNEL);
-    if (!channel) return;
-    const messages = await channel.messages.fetch({ limit: 100 });
-    const queroMessages = messages.filter(m => m.content.startsWith('QUERO_'));
-    for (const [, msg] of queroMessages) {
-      const discordId = msg.content.split(':')[0].replace('QUERO_', '');
-      const lista = await loadQueroList(discordId);
-      if (!lista.length) continue;
-      let usuario;
-      try { usuario = await client.users.fetch(discordId); } catch (_) { continue; }
-      for (const jogo of lista) {
-        const preco = await getPriceOverview(jogo.appid);
-        if (!preco) continue;
-        const estaEmPromocao = preco.emPromocao && preco.desconto > 0;
-        const estadoAnterior = jogo.ultimoEstadoPromocao;
-        if (estaEmPromocao && (estadoAnterior === false || estadoAnterior === null)) {
-          const embed = new EmbedBuilder()
-            .setColor(0x00FF00)
-            .setTitle(`🎉 ${jogo.nome} está em promoção!`)
-            .setURL(jogo.link)
-            .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${jogo.appid}/header.jpg`)
-            .addFields(
-              { name: '💰 Preço antigo', value: `~~${preco.precoAntigo}~~`, inline: true },
-              { name: '💰 Preço atual', value: `**${preco.precoAtual}**`, inline: true },
-              { name: '📉 Desconto', value: `**${preco.desconto}% OFF**`, inline: true },
-              { name: '🔗 Link', value: `[Comprar na Steam](${preco.link})`, inline: false }
-            )
-            .setFooter({ text: 'Steam Família - Promoções /quero' })
-            .setTimestamp();
-          try {
-            await usuario.send({ embeds: [embed] });
-          } catch (err) {
-            console.error(`❌ Erro ao enviar DM para ${usuario.username}:`, err.message);
-          }
-          jogo.ultimoEstadoPromocao = true;
-          await saveQueroList(discordId, lista);
-        } else if (!estaEmPromocao && estadoAnterior === true) {
-          jogo.ultimoEstadoPromocao = false;
-          await saveQueroList(discordId, lista);
-        } else if (estadoAnterior === null) {
-          jogo.ultimoEstadoPromocao = estaEmPromocao;
-          await saveQueroList(discordId, lista);
-        }
-      }
-    }
-  } catch (err) {
-    console.error('❌ Erro em verificarPromocoesQuero:', err);
-  }
-}
-
 async function checkNewGames() {
   try {
     const channelNotificacoes = client.channels.cache.get(CHANNEL_ID);
@@ -953,7 +826,6 @@ async function checkNewGames() {
         if (!member) continue;
         const userName = member.nome;
         const discordId = member.discordId;
-        const mention = `<@${discordId}>`;
 
         if (!db.historicoJogos[steamId]) {
           db.historicoJogos[steamId] = allGames.map(g => g.appid);
@@ -969,10 +841,8 @@ async function checkNewGames() {
           const nome = game.name || `App ${appid}`;
           const link = `https://store.steampowered.com/app/${appid}`;
           const compat = await verificarCompatibilidadeFamilia(appid);
-          if (!compat.compatível) {
-            console.log(`⚠️ Jogo ${nome} (${appid}) é INCOMPATÍVEL - não anunciado.`);
-            continue;
-          }
+          if (!compat.compatível) continue;
+          
           const embed = new EmbedBuilder()
             .setColor(0x00FF00)
             .setTitle(`🛒 NOVO JOGO NA FAMÍLIA!`)
@@ -987,24 +857,6 @@ async function checkNewGames() {
             db.ranking[steamId].jogos += 1;
             await salvarDBNoCanal();
             await enviarRanking();
-          }
-
-          const channel = client.channels.cache.get(QUERO_CHANNEL);
-          if (channel) {
-            const messages = await channel.messages.fetch({ limit: 100 });
-            const queroMessages = messages.filter(m => m.content.startsWith('QUERO_'));
-            for (const [, msg] of queroMessages) {
-              const dId = msg.content.split(':')[0].replace('QUERO_', '');
-              const lista = await loadQueroList(dId);
-              const temJogo = lista.some(j => j.appid === appid);
-              if (temJogo) {
-                await removerQuero(dId, appid);
-                try {
-                  const user = await client.users.fetch(dId);
-                  await user.send(`🎮 **${nome}** foi removido da sua lista /quero!\n✅ **${userName}** adquiriu este jogo.`);
-                } catch (_) {}
-              }
-            }
           }
         }
         db.historicoJogos[steamId] = allGames.map(g => g.appid);
@@ -1054,15 +906,12 @@ async function checkAchievements() {
 console.log('🚀 [11] Tarefas periódicas carregadas.');
 
 // ============================================================
-// 12. FUNÇÃO DE BUSCA DE VÍDEOS NO YOUTUBE (COM CACHE PERSISTENTE)
+// 12. FUNÇÃO DE BUSCA DE VÍDEOS
 // ============================================================
 async function buscarVideoYouTube(nomeJogo, nomeConquista) {
-  const inicioTotal = Date.now();
-  
-  // 🔥 PRIMEIRO: VERIFICA O CACHE PERSISTENTE
   const cachedVideo = await getVideoFromCache(nomeJogo, nomeConquista);
   if (cachedVideo) {
-    console.log(`✅ [CACHE PERSISTENTE] Vídeo encontrado para "${nomeConquista}"`);
+    console.log(`✅ [CACHE] Vídeo encontrado para "${nomeConquista}"`);
     return cachedVideo;
   }
   
@@ -1076,203 +925,67 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
   try {
     const nomeJogoLimpo = nomeJogo.replace(/[^\w\s]/gi, '').trim();
     const nomeConquistaLimpo = nomeConquista.replace(/[^\w\s]/gi, '').trim();
-    
     const termoBusca = `${nomeConquistaLimpo} ${nomeJogoLimpo} trophy`;
-    console.log(`⏱️ [buscarVideoYouTube] Termo: "${termoBusca}"`);
     
-    const inicioSearch = Date.now();
-    console.log(`⏱️ [buscarVideoYouTube] Iniciando busca no YouTube...`);
-    
-    let searchResponse;
-    try {
-      searchResponse = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+    const searchResponse = await Promise.race([
+      axios.get('https://www.googleapis.com/youtube/v3/search', {
         params: {
           part: 'snippet',
           type: 'video',
-          maxResults: 10,
+          maxResults: 5,
           q: termoBusca,
           key: YOUTUBE_API_KEY,
           order: 'relevance'
         },
-        timeout: 8000
-      });
-    } catch (error) {
-      if (error.response && error.response.status === 429) {
-        console.log(`⚠️ [buscarVideoYouTube] Quota do YouTube excedida (429).`);
-        return null;
-      }
-      throw error;
-    }
-
-    console.log(`⏱️ [buscarVideoYouTube] Busca concluída em ${Date.now() - inicioSearch}ms`);
+        timeout: 5000
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout YouTube')), 5000))
+    ]);
 
     if (!searchResponse.data.items?.length) {
-      console.log(`⏱️ [buscarVideoYouTube] Nenhum resultado encontrado (${Date.now() - inicioTotal}ms)`);
+      console.log(`⚠️ Nenhum resultado para: "${termoBusca}"`);
       return null;
     }
 
-    console.log(`📊 Encontrou ${searchResponse.data.items.length} vídeos`);
+    const primeiroVideo = searchResponse.data.items[0];
+    const videoInfo = {
+      id: primeiroVideo.id.videoId,
+      titulo: primeiroVideo.snippet.title,
+      canal: primeiroVideo.snippet.channelTitle,
+      link: `https://www.youtube.com/watch?v=${primeiroVideo.id.videoId}`,
+      views: 0
+    };
 
-    const videoIds = searchResponse.data.items.map(item => item.id.videoId).join(',');
-    let statsResponse = null;
-    
+    // Tenta buscar views, mas não espera
     try {
-      statsResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
-        params: {
-          part: 'statistics,contentDetails',
-          id: videoIds,
-          key: YOUTUBE_API_KEY
-        },
-        timeout: 5000
-      });
-    } catch (e) {
-      console.log(`⚠️ Erro nas estatísticas: ${e.message}`);
-    }
-
-    const conquistaLower = nomeConquistaLimpo.toLowerCase();
-    const jogoLower = nomeJogoLimpo.toLowerCase();
-
-    const palavrasConquista = conquistaLower.split(' ')
-      .filter(p => p.length > 2 && !['the', 'and', 'for', 'with', 'from', 'that', 'this', 'have', 'are', 'was', 'were', 'you', 'your', 'all', 'unit'].includes(p));
-
-    let videosPontuados = searchResponse.data.items
-      .map(item => {
-        const titulo = item.snippet.title;
-        const tituloLower = titulo.toLowerCase();
-        
-        const temJogo = tituloLower.includes(jogoLower);
-        
-        let palavrasEncontradas = 0;
-        let todasPalavrasEncontradas = true;
-        for (const palavra of palavrasConquista) {
-          if (tituloLower.includes(palavra)) {
-            palavrasEncontradas++;
-          } else {
-            todasPalavrasEncontradas = false;
-          }
+      const statsResponse = await Promise.race([
+        axios.get('https://www.googleapis.com/youtube/v3/videos', {
+          params: {
+            part: 'statistics',
+            id: primeiroVideo.id.videoId,
+            key: YOUTUBE_API_KEY
+          },
+          timeout: 2000
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout stats')), 2000))
+      ]);
+      if (statsResponse?.data?.items?.length > 0) {
+        const stats = statsResponse.data.items[0];
+        if (stats.statistics) {
+          videoInfo.views = parseInt(stats.statistics.viewCount) || 0;
         }
-        
-        const comecaComConquista = tituloLower.startsWith(conquistaLower);
-        
-        let views = 0;
-        let duracaoSegundos = 9999;
-        
-        if (statsResponse?.data?.items) {
-          const detail = statsResponse.data.items.find(d => d.id === item.id.videoId);
-          if (detail) {
-            if (detail.statistics) {
-              views = parseInt(detail.statistics.viewCount) || 0;
-            }
-            if (detail.contentDetails) {
-              duracaoSegundos = converterDuracaoISO(detail.contentDetails.duration);
-            }
-          }
-        }
-        
-        let score = 0;
-        
-        if (temJogo) {
-          score += 50;
-        } else {
-          score -= 20;
-        }
-        
-        if (todasPalavrasEncontradas && palavrasConquista.length > 0) {
-          score += 100;
-        } else {
-          score += palavrasEncontradas * 10;
-        }
-        
-        if (comecaComConquista) {
-          score += 50;
-        }
-        
-        if (duracaoSegundos < 180) score += 40;
-        else if (duracaoSegundos < 300) score += 30;
-        else if (duracaoSegundos < 480) score += 15;
-        else if (duracaoSegundos > 600) score -= 20;
-        
-        if (views > 10000) score += 5;
-        else if (views > 5000) score += 3;
-        else if (views > 1000) score += 1;
-        
-        return {
-          id: item.id.videoId,
-          titulo: titulo,
-          canal: item.snippet.channelTitle,
-          link: `https://www.youtube.com/watch?v=${item.id.videoId}`,
-          views: views,
-          duracao: duracaoSegundos,
-          temJogo: temJogo,
-          palavrasEncontradas: palavrasEncontradas,
-          todasPalavras: todasPalavrasEncontradas,
-          comecaComConquista: comecaComConquista,
-          score: score
-        };
-      })
-      .filter(v => v.temJogo);
-
-    console.log(`📊 Vídeos com o jogo no título: ${videosPontuados.length}`);
-
-    if (videosPontuados.length === 0) {
-      console.log(`⚠️ Nenhum vídeo encontrado com o nome do jogo no título.`);
-      return null;
-    }
-
-    videosPontuados.sort((a, b) => {
-      if (a.todasPalavras && !b.todasPalavras) return -1;
-      if (!a.todasPalavras && b.todasPalavras) return 1;
-      if (a.comecaComConquista && !b.comecaComConquista) return -1;
-      if (!a.comecaComConquista && b.comecaComConquista) return 1;
-      return b.score - a.score;
-    });
-
-    console.log(`📊 TOP 5 VÍDEOS:`);
-    videosPontuados.slice(0, 5).forEach((v, i) => {
-      console.log(`  ${i+1}. "${v.titulo.substring(0, 50)}..."`);
-      console.log(`     🎯 Score: ${v.score} | ⏱️ ${Math.round(v.duracao/60)}min | 👁️ ${v.views.toLocaleString()}`);
-      console.log(`     🔗 ${v.link}`);
-    });
-
-    let videoEscolhido = videosPontuados.find(v => v.todasPalavras);
-    if (!videoEscolhido) {
-      videoEscolhido = videosPontuados[0];
-    }
-    
-    if (videoEscolhido) {
-      console.log(`✅ VÍDEO ESCOLHIDO: "${videoEscolhido.titulo}"`);
-      console.log(`⏱️ Duração: ${Math.round(videoEscolhido.duracao/60)} minutos`);
-      console.log(`👁️ Visualizações: ${videoEscolhido.views.toLocaleString()}`);
-      console.log(`🔗 ${videoEscolhido.link}`);
-      
-      // 🔥 SALVA NO CACHE PERSISTENTE
-      await saveVideoToCache(nomeJogo, nomeConquista, videoEscolhido);
-      
-      return videoEscolhido;
-    }
-
-    return null;
-  } catch (error) {
-    console.error(`❌ ERRO NA BUSCA (${Date.now() - inicioTotal}ms):`, error.message);
-    if (error.response) {
-      console.error(`📌 Status: ${error.response.status}`);
-      if (error.response.status === 429) {
-        console.error(`📌 QUOTA EXCEDIDA! Limite de buscas diárias atingido.`);
-        return null;
       }
-      console.error(`📌 Dados:`, JSON.stringify(error.response.data, null, 2));
+    } catch (e) {
+      console.log(`⚠️ Erro nas estatísticas (usando vídeo sem views): ${e.message}`);
     }
+
+    console.log(`✅ VÍDEO ENCONTRADO: "${videoInfo.titulo}"`);
+    await saveVideoToCache(nomeJogo, nomeConquista, videoInfo);
+    return videoInfo;
+  } catch (error) {
+    console.error(`❌ ERRO NA BUSCA: ${error.message}`);
     return null;
   }
-}
-
-function converterDuracaoISO(duracao) {
-  if (!duracao) return 9999;
-  const match = duracao.match(/PT(\d+H)?(\d+M)?(\d+S)?/);
-  const hours = parseInt(match?.[1]) || 0;
-  const minutes = parseInt(match?.[2]) || 0;
-  const seconds = parseInt(match?.[3]) || 0;
-  return hours * 3600 + minutes * 60 + seconds;
 }
 
 console.log('🚀 [12] Função de busca de vídeos carregada.');
@@ -1299,22 +1012,20 @@ const videoLinksMap = new Map();
 
 async function carregarMapeamentoConquistas() {
   if (conquestMappingsLoaded && conquestMappings) {
-    console.log('ℹ️ Mapeamento de conquistas já carregado em cache.');
     return conquestMappings;
   }
 
   const channelId = '1525926566373363823';
   const channel = client.channels.cache.get(channelId);
   if (!channel) {
-    console.error('❌ Canal #lista-quero não encontrado na cache!');
+    console.error('❌ Canal #lista-quero não encontrado!');
     try {
       const fetched = await client.channels.fetch(channelId);
       if (fetched) {
-        console.log('✅ Canal #lista-quero encontrado via fetch.');
         return await carregarMapeamentoDoCanal(fetched);
       }
     } catch (e) {
-      console.error('❌ Falha ao buscar canal #lista-quero:', e.message);
+      console.error('❌ Falha ao buscar canal:', e.message);
     }
     return null;
   }
@@ -1334,7 +1045,6 @@ async function carregarMapeamentoDoCanal(channel) {
     }
 
     const attachment = msg.attachments.find(a => a.name === 'megaman_x_achievements.json');
-    console.log(`📥 Baixando anexo de ${attachment.url}`);
     const response = await axios.get(attachment.url, { responseType: 'json' });
     conquestMappings = response.data;
     conquestMappingsLoaded = true;
@@ -1355,12 +1065,11 @@ const flagFile = path.join(__dirname, 'bot_started.flag');
 client.once('clientReady', async () => {
   console.log(`✅ Bot online como ${client.user.tag}`);
   console.log(`📋 Banco de dados armazenado como anexo no canal: <#${QUERO_CHANNEL}>`);
-  console.log(`📜 Canal de regras: <#${RULES_CHANNEL}> (envio manual via /regras)`);
 
   try {
     await inicializarDB();
     await carregarVideoCache();
-    console.log(`📊 Cache de vídeos carregado: ${Object.keys(videoCache).length} vídeos`);
+    console.log(`📊 Cache de vídeos: ${Object.keys(videoCache).length} vídeos`);
 
     if (db.rankingVersion < RANKING_VERSION) {
       for (const [steamId, jogos] of Object.entries(RANKING_VALUES)) {
@@ -1381,24 +1090,7 @@ client.once('clientReady', async () => {
       await enviarRanking();
     }
 
-    if (Object.keys(db.historicoJogos).length === 0) {
-      console.log('🔄 Criando histórico inicial de jogos...');
-      for (const steamId of STEAM_IDS_ARRAY) {
-        try {
-          const games = await getOwnedGames(steamId);
-          db.historicoJogos[steamId] = games.map(g => g.appid);
-          console.log(`   ${MEMBROS[steamId]?.nome || steamId}: ${games.length} jogos`);
-        } catch (_) {}
-      }
-      await salvarDBNoCanal();
-    }
-
     conquestMappings = await carregarMapeamentoConquistas();
-    if (conquestMappings) {
-      console.log(`✅ Mapeamento de conquistas do Mega Man X carregado com sucesso.`);
-    } else {
-      console.warn('⚠️ Mapeamento não carregado. As imagens personalizadas não serão usadas.');
-    }
 
     console.log('🔄 Registrando comandos...');
     try {
@@ -1413,14 +1105,7 @@ client.once('clientReady', async () => {
         {
           name: 'conquista',
           description: 'Mostra todas as conquistas de um jogo com vídeos guia',
-          options: [
-            {
-              name: 'jogo',
-              description: 'Nome do jogo para buscar conquistas',
-              type: 3,
-              required: true
-            }
-          ]
+          options: [{ name: 'jogo', description: 'Nome do jogo para buscar conquistas', type: 3, required: true }]
         }
       ];
       const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
@@ -1432,57 +1117,32 @@ client.once('clientReady', async () => {
 
     setInterval(checkAchievements, 30000);
     setInterval(checkNewGames, 300000);
-    setInterval(verificarLancamentosQuero, 5 * 60 * 1000);
-    setInterval(verificarPromocoesQuero, 5 * 60 * 1000);
     console.log('🔄 Monitorando conquistas a cada 30s, novos jogos a cada 5min.');
 
-    try {
-      if (!fs.existsSync(flagFile)) {
-        fs.writeFileSync(flagFile, Date.now().toString());
-        const dono = await client.users.fetch(DONO_ID);
-        await dono.send('🚀 Bot Steam Família está online! (Cache persistente)');
-        console.log('✅ Mensagem de inicialização enviada ao dono.');
-      } else {
-        console.log('ℹ️ Mensagem de inicialização já foi enviada anteriormente.');
-      }
-    } catch (err) {
-      console.log('⚠️ Erro ao verificar flag de inicialização:', err.message);
-      if (!botIniciado) {
-        botIniciado = true;
-        try {
-          const dono = await client.users.fetch(DONO_ID);
-          await dono.send('🚀 Bot Steam Família está online! (Cache persistente)');
-          console.log('✅ Mensagem de inicialização enviada ao dono.');
-        } catch (err2) {
-          console.log('⚠️ Não foi possível enviar mensagem ao dono:', err2.message);
-        }
-      }
+    if (!fs.existsSync(flagFile)) {
+      fs.writeFileSync(flagFile, Date.now().toString());
+      const dono = await client.users.fetch(DONO_ID);
+      await dono.send('🚀 Bot Steam Família está online! (Com timeouts)');
     }
   } catch (err) {
-    console.error('❌ ERRO FATAL NO EVENTO clientReady:', err);
-    console.error('❌ Stack:', err.stack);
+    console.error('❌ ERRO FATAL:', err);
   }
 });
 
 // ============================================================
-// 16. COMANDOS SLASH - VERSÃO RESUMIDA (FOCANDO NO /conquista)
+// 16. COMANDO /conquista (PRINCIPAL)
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  // ============================================================
-  // 🔥 COMANDO /conquista (CORRIGIDO)
-  // ============================================================
   if (interaction.commandName === 'conquista') {
-    const inicioComando = Date.now();
-    console.log(`⏱️ [COMANDO] /conquista INICIADO por ${interaction.user.tag}`);
+    console.log(`🎮 [COMANDO] /conquista por ${interaction.user.tag}`);
     
     try {
-      // 🔥 DEFER REPLY COM EPHEMERAL
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       
       const nomeJogoInput = interaction.options.getString('jogo').trim();
-      console.log(`📌 Jogo pesquisado: "${nomeJogoInput}"`);
+      console.log(`📌 Jogo: "${nomeJogoInput}"`);
 
       const jogoInfo = await searchGameOnSteam(nomeJogoInput);
       if (!jogoInfo) {
@@ -1490,7 +1150,6 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
       const appid = jogoInfo.appid;
-      console.log(`✅ Jogo encontrado: "${jogoInfo.nome}" (AppID: ${appid})`);
 
       let userSteamId = null;
       for (const [sid, m] of Object.entries(MEMBROS)) {
@@ -1505,7 +1164,7 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      // Verificar se o jogo está na família
+      // Verifica se o jogo está na família
       let jogoNaFamilia = false;
       let donosDoJogo = [];
       
@@ -1553,21 +1212,19 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      // Buscar conquistas (Mega Man X ou Steam)
+      // Buscar conquistas
       const isMegaManX = (appid === 743890);
       let conquistasSchema = [];
       let conquistasUsuario = [];
 
       if (isMegaManX && conquestMappings) {
-        console.log(`🎮 Mega Man X Legacy Collection detectado! Usando JSON personalizado.`);
-        
+        console.log(`🎮 Mega Man X detectado! Usando JSON.`);
         try {
           const playerAch = await getPlayerAchievements(userSteamId, appid);
           if (playerAch && Array.isArray(playerAch)) {
             conquistasUsuario = playerAch.filter(c => c.achieved === 1).map(c => c.apiname);
           }
         } catch (e) {
-          console.log(`⚠️ Erro ao buscar conquistas do usuário: ${e.message}`);
           conquistasUsuario = [];
         }
 
@@ -1581,11 +1238,8 @@ client.on('interactionCreate', async (interaction) => {
             icongray: data.image || null
           };
         });
-
-        console.log(`📊 Mega Man X: ${conquistasSchema.length} conquistas carregadas do JSON`);
       } else {
-        console.log(`🎮 Buscando schema da Steam para: ${jogoInfo.nome}`);
-        
+        console.log(`🎮 Buscando schema da Steam...`);
         let schemaData;
         try {
           const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
@@ -1641,7 +1295,7 @@ client.on('interactionCreate', async (interaction) => {
       const usuarioTemJogo = donosDoJogo.some(d => d.steamId === userSteamId);
       const nomesDonos = donosDoJogo.map(d => d.nome).join(', ');
 
-      // FUNÇÃO PARA GERAR EMBED DA CONQUISTA
+      // Gerar embed da conquista
       async function generateAchievementEmbed(ach, index) {
         let imageUrl = ach.icon;
         if (imageUrl && !imageUrl.startsWith('http')) {
@@ -1768,8 +1422,7 @@ client.on('interactionCreate', async (interaction) => {
         descricaoResumo += `**📊 Todas as Conquistas do Jogo**\n\n`;
         descricaoResumo += `🔒 **Não desbloqueadas:** ${totalConquistas}/${totalConquistas}\n`;
         descricaoResumo += `📊 **Progresso:** 0%\n\n`;
-        descricaoResumo += `📌 **Legenda:**\n`;
-        descricaoResumo += `🔒 Conquista não desbloqueada\n\n`;
+        descricaoResumo += `📌 **Legenda:** 🔒 Conquista não desbloqueada\n\n`;
         descricaoResumo += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
         descricaoResumo += `\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.`;
       } else {
@@ -1777,9 +1430,7 @@ client.on('interactionCreate', async (interaction) => {
         descricaoResumo += `✅ **Desbloqueadas:** ${conquistasDesbloqueadas}/${totalConquistas}\n`;
         descricaoResumo += `🔒 **Faltantes:** ${conquistasFaltantes}/${totalConquistas}\n`;
         descricaoResumo += `📊 **Progresso:** ${Math.round((conquistasDesbloqueadas/totalConquistas)*100)}%\n\n`;
-        descricaoResumo += `📌 **Legenda:**\n`;
-        descricaoResumo += `✅ Conquista desbloqueada\n`;
-        descricaoResumo += `🔒 Conquista não desbloqueada\n\n`;
+        descricaoResumo += `📌 **Legenda:** ✅ Desbloqueada | 🔒 Não desbloqueada\n\n`;
         descricaoResumo += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
         descricaoResumo += `\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.`;
       }
@@ -1795,27 +1446,27 @@ client.on('interactionCreate', async (interaction) => {
       const selectRow = generateSelectMenu(0);
       const buttonRow = generatePaginationButtons(0);
 
-      await interaction.editReply({
+      // 🔥 ENVIA A RESPOSTA
+      const reply = await interaction.editReply({
         embeds: [embedResumo],
         components: [selectRow, buttonRow]
       });
 
-      const reply = await interaction.fetchReply();
-      console.log(`⏱️ [COMANDO] /conquista TOTAL: ${Date.now() - inicioComando}ms`);
+      console.log(`✅ Resposta enviada com sucesso!`);
 
-      // COLLECTOR PARA INTERAÇÕES
+      // 🔥 COLLECTOR COM TRATAMENTO DE ERROS
       const filter = i => i.user.id === interaction.user.id;
-      const collector = interaction.channel.createMessageComponentCollector({ filter, time: 180000 });
+      const collector = reply.createMessageComponentCollector({ filter, time: 180000 });
 
       collector.on('collect', async (i) => {
+        // 🔥 VERIFICA SE A INTERAÇÃO AINDA É VÁLIDA
+        if (!i.isRepliable()) {
+          console.log(`⚠️ [BOTÃO] Interação não pode ser respondida`);
+          return;
+        }
+
         // BOTÃO DE VÍDEO
         if (i.customId.startsWith('video_')) {
-          // 🔥 VERIFICA SE A INTERAÇÃO AINDA É VÁLIDA
-          if (!i.isRepliable()) {
-            console.log(`⚠️ [BOTÃO] Interação não pode ser respondida (já expirou)`);
-            return;
-          }
-          
           const videoData = videoLinksMap.get(i.customId);
           
           if (!videoData) {
@@ -1825,21 +1476,24 @@ client.on('interactionCreate', async (interaction) => {
                 flags: MessageFlags.Ephemeral
               });
             } catch (e) {
-              console.log(`⚠️ [BOTÃO] Erro ao responder: ${e.message}`);
+              console.log(`⚠️ Erro ao responder: ${e.message}`);
             }
             return;
           }
 
           try {
-            // 🔥 TENTA RESPONDER
             await i.reply({
-              content: '🔍 Buscando vídeo guia no YouTube... (máximo 6 segundos)',
+              content: '🔍 Buscando vídeo guia... (máximo 5 segundos)',
               flags: MessageFlags.Ephemeral
             });
 
+            // 🔥 TIMEOUT DE 5 SEGUNDOS
             const videoPromise = buscarVideoYouTube(videoData.jogo, videoData.conquista);
             const timeoutPromise = new Promise((resolve) => {
-              setTimeout(() => resolve(null), 6000);
+              setTimeout(() => {
+                console.log(`⏰ TIMEOUT: 5 segundos`);
+                resolve(null);
+              }, 5000);
             });
             
             const videoInfo = await Promise.race([videoPromise, timeoutPromise]);
@@ -1851,150 +1505,151 @@ client.on('interactionCreate', async (interaction) => {
                   flags: MessageFlags.Ephemeral
                 });
               } catch (e) {
-                console.log(`⚠️ [BOTÃO] Erro ao editar: ${e.message}`);
+                console.log(`⚠️ Erro ao editar: ${e.message}`);
                 await i.followUp({
-                  content: `🎬 **Vídeo guia para "${videoData.conquista}":**\n${videoInfo.link}`,
+                  content: `🎬 **Vídeo guia:**\n${videoInfo.link}`,
                   flags: MessageFlags.Ephemeral
                 });
               }
             } else {
               try {
                 await i.editReply({
-                  content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}" em "${videoData.jogo}".\n\n💡 Tente buscar manualmente no YouTube:\n\`${videoData.conquista} ${videoData.jogo} trophy\``,
+                  content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}" em "${videoData.jogo}".\n\n💡 Tente buscar manualmente:\n\`${videoData.conquista} ${videoData.jogo} trophy\``,
                   flags: MessageFlags.Ephemeral
                 });
               } catch (e) {
-                console.log(`⚠️ [BOTÃO] Erro ao editar: ${e.message}`);
                 await i.followUp({
-                  content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}" em "${videoData.jogo}".`,
+                  content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}".`,
                   flags: MessageFlags.Ephemeral
                 });
               }
             }
           } catch (error) {
-            console.error(`❌ [BOTÃO] Erro:`, error);
+            console.error(`❌ Erro no botão de vídeo:`, error);
             try {
               await i.followUp({
                 content: '❌ Erro ao buscar vídeo. Tente novamente.',
                 flags: MessageFlags.Ephemeral
               });
-            } catch (e) {
-              console.log(`⚠️ [BOTÃO] Não foi possível responder: ${e.message}`);
-            }
+            } catch (e) {}
           }
           return;
         }
 
         // Seleção de conquista
         if (i.customId === 'conquista_select') {
-          const selectedIndex = parseInt(i.values[0]);
-          const ach = conquistasList[selectedIndex];
-          const { embed, buttons } = await generateAchievementEmbed(ach, selectedIndex);
+          try {
+            const selectedIndex = parseInt(i.values[0]);
+            const ach = conquistasList[selectedIndex];
+            const { embed, buttons } = await generateAchievementEmbed(ach, selectedIndex);
 
-          await i.update({
-            embeds: [embed],
-            components: [buttons]
-          });
+            await i.update({
+              embeds: [embed],
+              components: [buttons]
+            });
+          } catch (e) {
+            console.error(`❌ Erro na seleção:`, e.message);
+          }
           return;
         }
 
         // Voltar à lista
         if (i.customId === 'back_to_list_conq') {
-          let descricaoAtualizada = `${mensagemAcesso}\n\n`;
-          
-          if (conquistasDesbloqueadas === 0 && conquistasUsuario.length === 0) {
-            descricaoAtualizada += `**📊 Todas as Conquistas do Jogo**\n\n`;
-            descricaoAtualizada += `🔒 **Não desbloqueadas:** ${totalConquistas}/${totalConquistas}\n`;
-            descricaoAtualizada += `📊 **Progresso:** 0%\n\n`;
-            descricaoAtualizada += `📌 **Legenda:**\n`;
-            descricaoAtualizada += `🔒 Conquista não desbloqueada\n\n`;
-            descricaoAtualizada += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
-            descricaoAtualizada += `\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.`;
-          } else {
-            descricaoAtualizada += `**📊 Suas Conquistas**\n\n`;
-            descricaoAtualizada += `✅ **Desbloqueadas:** ${conquistasDesbloqueadas}/${totalConquistas}\n`;
-            descricaoAtualizada += `🔒 **Faltantes:** ${conquistasFaltantes}/${totalConquistas}\n`;
-            descricaoAtualizada += `📊 **Progresso:** ${Math.round((conquistasDesbloqueadas/totalConquistas)*100)}%\n\n`;
-            descricaoAtualizada += `📌 **Legenda:**\n`;
-            descricaoAtualizada += `✅ Conquista desbloqueada\n`;
-            descricaoAtualizada += `🔒 Conquista não desbloqueada\n\n`;
-            descricaoAtualizada += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
-            descricaoAtualizada += `\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.`;
+          try {
+            let descricaoAtualizada = `${mensagemAcesso}\n\n`;
+            
+            if (conquistasDesbloqueadas === 0 && conquistasUsuario.length === 0) {
+              descricaoAtualizada += `**📊 Todas as Conquistas do Jogo**\n\n`;
+              descricaoAtualizada += `🔒 **Não desbloqueadas:** ${totalConquistas}/${totalConquistas}\n`;
+              descricaoAtualizada += `📊 **Progresso:** 0%\n\n`;
+              descricaoAtualizada += `📌 **Legenda:** 🔒 Conquista não desbloqueada\n\n`;
+              descricaoAtualizada += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
+              descricaoAtualizada += `\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.`;
+            } else {
+              descricaoAtualizada += `**📊 Suas Conquistas**\n\n`;
+              descricaoAtualizada += `✅ **Desbloqueadas:** ${conquistasDesbloqueadas}/${totalConquistas}\n`;
+              descricaoAtualizada += `🔒 **Faltantes:** ${conquistasFaltantes}/${totalConquistas}\n`;
+              descricaoAtualizada += `📊 **Progresso:** ${Math.round((conquistasDesbloqueadas/totalConquistas)*100)}%\n\n`;
+              descricaoAtualizada += `📌 **Legenda:** ✅ Desbloqueada | 🔒 Não desbloqueada\n\n`;
+              descricaoAtualizada += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
+              descricaoAtualizada += `\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.`;
+            }
+
+            const embed = new EmbedBuilder()
+              .setColor(0x00AE86)
+              .setTitle(`🎮 ${jogoInfo.nome}`)
+              .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
+              .setDescription(descricaoAtualizada)
+              .setFooter({ text: `Total: ${totalConquistas} conquistas • Página ${currentPage+1}/${Math.ceil(totalConquistas/ITEMS_PER_PAGE)}` })
+              .setTimestamp();
+
+            const selectRow = generateSelectMenu(currentPage);
+            const buttonRow = generatePaginationButtons(currentPage);
+
+            await i.update({
+              embeds: [embed],
+              components: [selectRow, buttonRow]
+            });
+          } catch (e) {
+            console.error(`❌ Erro ao voltar:`, e.message);
           }
-
-          const embed = new EmbedBuilder()
-            .setColor(0x00AE86)
-            .setTitle(`🎮 ${jogoInfo.nome}`)
-            .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
-            .setDescription(descricaoAtualizada)
-            .setFooter({ text: `Total: ${totalConquistas} conquistas • Página ${currentPage+1}/${Math.ceil(totalConquistas/ITEMS_PER_PAGE)}` })
-            .setTimestamp();
-
-          const selectRow = generateSelectMenu(currentPage);
-          const buttonRow = generatePaginationButtons(currentPage);
-
-          await i.update({
-            embeds: [embed],
-            components: [selectRow, buttonRow]
-          });
           return;
         }
 
         // Navegação de página
         if (i.customId === 'prev_page_conq' || i.customId === 'next_page_conq') {
-          const totalPages = Math.ceil(totalConquistas / ITEMS_PER_PAGE);
-          if (i.customId === 'prev_page_conq' && currentPage > 0) currentPage--;
-          if (i.customId === 'next_page_conq' && currentPage < totalPages - 1) currentPage++;
+          try {
+            const totalPages = Math.ceil(totalConquistas / ITEMS_PER_PAGE);
+            if (i.customId === 'prev_page_conq' && currentPage > 0) currentPage--;
+            if (i.customId === 'next_page_conq' && currentPage < totalPages - 1) currentPage++;
 
-          let descricaoAtualizada = `${mensagemAcesso}\n\n`;
-          
-          if (conquistasDesbloqueadas === 0 && conquistasUsuario.length === 0) {
-            descricaoAtualizada += `**📊 Todas as Conquistas do Jogo**\n\n`;
-            descricaoAtualizada += `🔒 **Não desbloqueadas:** ${totalConquistas}/${totalConquistas}\n`;
-            descricaoAtualizada += `📊 **Progresso:** 0%\n\n`;
-            descricaoAtualizada += `📌 **Legenda:**\n`;
-            descricaoAtualizada += `🔒 Conquista não desbloqueada\n\n`;
-            descricaoAtualizada += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
-            descricaoAtualizada += `\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.`;
-          } else {
-            descricaoAtualizada += `**📊 Suas Conquistas**\n\n`;
-            descricaoAtualizada += `✅ **Desbloqueadas:** ${conquistasDesbloqueadas}/${totalConquistas}\n`;
-            descricaoAtualizada += `🔒 **Faltantes:** ${conquistasFaltantes}/${totalConquistas}\n`;
-            descricaoAtualizada += `📊 **Progresso:** ${Math.round((conquistasDesbloqueadas/totalConquistas)*100)}%\n\n`;
-            descricaoAtualizada += `📌 **Legenda:**\n`;
-            descricaoAtualizada += `✅ Conquista desbloqueada\n`;
-            descricaoAtualizada += `🔒 Conquista não desbloqueada\n\n`;
-            descricaoAtualizada += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
-            descricaoAtualizada += `\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.`;
+            let descricaoAtualizada = `${mensagemAcesso}\n\n`;
+            
+            if (conquistasDesbloqueadas === 0 && conquistasUsuario.length === 0) {
+              descricaoAtualizada += `**📊 Todas as Conquistas do Jogo**\n\n`;
+              descricaoAtualizada += `🔒 **Não desbloqueadas:** ${totalConquistas}/${totalConquistas}\n`;
+              descricaoAtualizada += `📊 **Progresso:** 0%\n\n`;
+              descricaoAtualizada += `📌 **Legenda:** 🔒 Conquista não desbloqueada\n\n`;
+              descricaoAtualizada += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
+              descricaoAtualizada += `\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.`;
+            } else {
+              descricaoAtualizada += `**📊 Suas Conquistas**\n\n`;
+              descricaoAtualizada += `✅ **Desbloqueadas:** ${conquistasDesbloqueadas}/${totalConquistas}\n`;
+              descricaoAtualizada += `🔒 **Faltantes:** ${conquistasFaltantes}/${totalConquistas}\n`;
+              descricaoAtualizada += `📊 **Progresso:** ${Math.round((conquistasDesbloqueadas/totalConquistas)*100)}%\n\n`;
+              descricaoAtualizada += `📌 **Legenda:** ✅ Desbloqueada | 🔒 Não desbloqueada\n\n`;
+              descricaoAtualizada += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
+              descricaoAtualizada += `\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.`;
+            }
+
+            const embed = new EmbedBuilder()
+              .setColor(0x00AE86)
+              .setTitle(`🎮 ${jogoInfo.nome}`)
+              .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
+              .setDescription(descricaoAtualizada)
+              .setFooter({ text: `Total: ${totalConquistas} conquistas • Página ${currentPage+1}/${Math.ceil(totalConquistas/ITEMS_PER_PAGE)}` })
+              .setTimestamp();
+
+            const selectRow = generateSelectMenu(currentPage);
+            const buttonRow = generatePaginationButtons(currentPage);
+
+            await i.update({
+              embeds: [embed],
+              components: [selectRow, buttonRow]
+            });
+          } catch (e) {
+            console.error(`❌ Erro na navegação:`, e.message);
           }
-
-          const embed = new EmbedBuilder()
-            .setColor(0x00AE86)
-            .setTitle(`🎮 ${jogoInfo.nome}`)
-            .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
-            .setDescription(descricaoAtualizada)
-            .setFooter({ text: `Total: ${totalConquistas} conquistas • Página ${currentPage+1}/${Math.ceil(totalConquistas/ITEMS_PER_PAGE)}` })
-            .setTimestamp();
-
-          const selectRow = generateSelectMenu(currentPage);
-          const buttonRow = generatePaginationButtons(currentPage);
-
-          await i.update({
-            embeds: [embed],
-            components: [selectRow, buttonRow]
-          });
           return;
         }
       });
 
       collector.on('end', async () => {
         try {
-          const msg = await interaction.channel.messages.fetch(reply.id).catch(() => null);
-          if (msg) {
-            await msg.edit({ components: [] }).catch(() => {});
-          }
+          await reply.edit({ components: [] }).catch(() => {});
         } catch (_) {}
       });
+
     } catch (error) {
       console.error(`❌ [COMANDO] Erro crítico:`, error);
       try {
@@ -2002,12 +1657,10 @@ client.on('interactionCreate', async (interaction) => {
       } catch (_) {}
     }
   }
-  
-  // Outros comandos podem ser adicionados aqui se necessário
 });
 
 // ============================================================
-// 17. INTERAÇÕES COM BOTÕES (FALLBACK)
+// 17. FALLBACK PARA BOTÕES
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
@@ -2031,13 +1684,13 @@ client.on('interactionCreate', async (interaction) => {
 
     try {
       await interaction.reply({
-        content: '🔍 Buscando vídeo guia no YouTube... (máximo 6 segundos)',
+        content: '🔍 Buscando vídeo guia... (máximo 5 segundos)',
         flags: MessageFlags.Ephemeral
       });
 
       const videoPromise = buscarVideoYouTube(videoData.jogo, videoData.conquista);
       const timeoutPromise = new Promise((resolve) => {
-        setTimeout(() => resolve(null), 6000);
+        setTimeout(() => resolve(null), 5000);
       });
       
       const videoInfo = await Promise.race([videoPromise, timeoutPromise]);
@@ -2045,24 +1698,24 @@ client.on('interactionCreate', async (interaction) => {
       if (videoInfo) {
         try {
           await interaction.editReply({
-            content: `🎬 **Vídeo guia para "${videoData.conquista}":**\n${videoInfo.link}`,
+            content: `🎬 **Vídeo guia:**\n${videoInfo.link}`,
             flags: MessageFlags.Ephemeral
           });
         } catch (e) {
           await interaction.followUp({
-            content: `🎬 **Vídeo guia para "${videoData.conquista}":**\n${videoInfo.link}`,
+            content: `🎬 **Vídeo guia:**\n${videoInfo.link}`,
             flags: MessageFlags.Ephemeral
           });
         }
       } else {
         try {
           await interaction.editReply({
-            content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}" em "${videoData.jogo}".\n\n💡 Tente buscar manualmente no YouTube:\n\`${videoData.conquista} ${videoData.jogo} trophy\``,
+            content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}".`,
             flags: MessageFlags.Ephemeral
           });
         } catch (e) {
           await interaction.followUp({
-            content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}" em "${videoData.jogo}".`,
+            content: `❌ Nenhum vídeo encontrado.`,
             flags: MessageFlags.Ephemeral
           });
         }
@@ -2080,8 +1733,9 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 18. !resetranking
+// 18. OUTROS COMANDOS E LOGIN
 // ============================================================
+// !resetranking
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
   if (message.content.toLowerCase() !== '!resetranking') return;
@@ -2104,6 +1758,20 @@ client.on('messageCreate', async (message) => {
   collector.on('end', collected => {
     if (collected.size === 0) message.reply('⏰ Cancelado.');
   });
+});
+
+// /regras
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName === 'regras') {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    try {
+      await enviarRegras();
+      await interaction.editReply('✅ Mensagem de regras enviada no canal <#' + RULES_CHANNEL + '>.');
+    } catch (err) {
+      await interaction.editReply(`❌ Erro ao enviar regras: ${err.message}`);
+    }
+  }
 });
 
 // ============================================================
