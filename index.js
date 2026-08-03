@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO FINAL (OTIMIZADA - SEM TIMEOUT)
+// BOT STEAM FAMÍLIA - VERSÃO FINAL (COM ADIÇÃO DE JOGOS RECENTES)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -300,7 +300,7 @@ async function getOwnedGames(steamId) {
   return data?.response?.games || [];
 }
 
-async function getRecentlyPlayedGames(steamId, limit = 3) {
+async function getRecentlyPlayedGames(steamId, limit = 5) {
   const data = await fetchSteam(
     'https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v1/',
     { steamid: steamId, count: limit, format: 'json' }
@@ -1022,6 +1022,9 @@ async function checkNewGames() {
   }
 }
 
+// ============================================================
+// 11.1 CHECK ACHIEVEMENTS (MODIFICADO - ADICIONA JOGOS RECENTES AO HISTÓRICO)
+// ============================================================
 async function checkAchievements() {
   try {
     for (const steamId of STEAM_IDS_ARRAY) {
@@ -1032,19 +1035,51 @@ async function checkAchievements() {
         const discordId = member.discordId;
         const mention = `<@${discordId}>`;
 
+        // 🔥 PEGA O JOGO ATUAL E OS RECENTES
         const currentGame = await getCurrentGame(steamId);
-        let recentGames = await getRecentlyPlayedGames(steamId, 3);
+        let recentGames = await getRecentlyPlayedGames(steamId, 5);
         let gamesToCheck = [];
+        
+        // 🔥 ADICIONA OS JOGOS RECENTES AO HISTÓRICO (MESMO QUE NÃO SEJA DONO)
+        const jogosParaAdicionar = [];
+        
         if (currentGame) {
           const jaExiste = recentGames.some(g => g.appid === currentGame.appid);
           const currentGameObj = { appid: currentGame.appid, name: currentGame.name, rtime_last_played: Date.now() / 1000 };
           if (jaExiste) {
             recentGames = recentGames.filter(g => g.appid !== currentGame.appid);
           }
-          gamesToCheck = [currentGameObj, ...recentGames.slice(0, 2)];
+          gamesToCheck = [currentGameObj, ...recentGames.slice(0, 4)];
+          
+          // 🔥 Adiciona o jogo atual ao histórico
+          jogosParaAdicionar.push(currentGame.appid);
         } else {
-          gamesToCheck = recentGames.slice(0, 3);
+          gamesToCheck = recentGames.slice(0, 5);
         }
+        
+        // 🔥 ADICIONA OS JOGOS RECENTES AO HISTÓRICO
+        for (const game of recentGames) {
+          jogosParaAdicionar.push(game.appid);
+        }
+        
+        // 🔥 ATUALIZA O DB COM OS JOGOS RECENTES (MESMO QUE NÃO SEJA DONO)
+        if (jogosParaAdicionar.length > 0) {
+          if (!db.historicoJogos[steamId]) {
+            db.historicoJogos[steamId] = [];
+          }
+          let adicionados = 0;
+          for (const appid of jogosParaAdicionar) {
+            if (!db.historicoJogos[steamId].includes(appid)) {
+              db.historicoJogos[steamId].push(appid);
+              adicionados++;
+            }
+          }
+          if (adicionados > 0) {
+            console.log(`📥 ${userName}: ${adicionados} jogos recentes adicionados ao histórico`);
+            await salvarDBNoCanal();
+          }
+        }
+        
         await verificarConquistas(steamId, gamesToCheck, mention, userName);
       } catch (err) {
         console.error(`❌ Erro em ${steamId}:`, err.message);
@@ -1410,7 +1445,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (OTIMIZADO - SEM TIMEOUT)
+  // 🔥 COMANDO /conquista (OTIMIZADO - APENAS DB LOCAL)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     // 🔥 DEFER COM EPHEMERAL LOGO NO INÍCIO
@@ -1447,6 +1482,30 @@ client.on('interactionCreate', async (interaction) => {
     let totalConquistas = 0;
 
     // ============================================================
+    // 🔥 VERIFICA SE ALGUM MEMBRO DA FAMÍLIA POSSUI O JOGO (APENAS DB LOCAL)
+    // ============================================================
+    let possuiNaFamilia = false;
+    let donoDoJogo = null;
+    
+    for (const sid of STEAM_IDS_ARRAY) {
+      if ((db.historicoJogos[sid] || []).includes(appid)) {
+        possuiNaFamilia = true;
+        const member = MEMBROS[sid];
+        if (member) {
+          donoDoJogo = member.nome;
+        }
+        break;
+      }
+    }
+    
+    if (!possuiNaFamilia) {
+      await interaction.editReply(`❌ **${jogoInfo.nome}** não está na biblioteca da família.`);
+      return;
+    }
+    
+    console.log(`✅ Jogo encontrado na família! Dono: ${donoDoJogo || 'desconhecido'}`);
+
+    // ============================================================
     // OBTÉM A LISTA DE CONQUISTAS (MEGA MAN X JSON OU STEAM)
     // ============================================================
     if (isMegaManX && conquestMappings) {
@@ -1478,49 +1537,6 @@ client.on('interactionCreate', async (interaction) => {
     } else {
       // Para outros jogos: usa a Steam
       console.log(`🎮 Usando Steam API para: ${jogoInfo.nome} (AppID: ${appid})`);
-      
-      // 🔥 OTIMIZAÇÃO: Verifica usando o banco de dados local primeiro
-      let possuiNaFamilia = false;
-      let donoDoJogo = null;
-      
-      // Primeiro, verifica no banco de dados local (mais rápido)
-      for (const sid of STEAM_IDS_ARRAY) {
-        if ((db.historicoJogos[sid] || []).includes(appid)) {
-          possuiNaFamilia = true;
-          const member = MEMBROS[sid];
-          if (member) {
-            donoDoJogo = member.nome;
-          }
-          break;
-        }
-      }
-      
-      // Se não encontrou no DB, faz a chamada à API (mais lento)
-      if (!possuiNaFamilia) {
-        console.log(`🔄 Jogo não encontrado no DB, verificando via API...`);
-        for (const sid of STEAM_IDS_ARRAY) {
-          try {
-            const ownedGames = await getOwnedGames(sid);
-            if (ownedGames.some(g => g.appid === appid)) {
-              possuiNaFamilia = true;
-              const member = MEMBROS[sid];
-              if (member) {
-                donoDoJogo = member.nome;
-              }
-              break;
-            }
-          } catch (e) {
-            console.log(`⚠️ Erro ao verificar jogos de ${sid}: ${e.message}`);
-          }
-        }
-      }
-      
-      if (!possuiNaFamilia) {
-        await interaction.editReply(`❌ **${jogoInfo.nome}** não está na biblioteca da família.`);
-        return;
-      }
-      
-      console.log(`✅ Jogo encontrado na família! Dono: ${donoDoJogo || 'desconhecido'}`);
 
       let schemaData;
       try {
