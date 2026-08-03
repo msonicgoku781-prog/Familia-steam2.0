@@ -1103,10 +1103,9 @@ client.once('clientReady', async () => {
     setInterval(verificarPromocoesQuero, 5 * 60 * 1000);
     console.log('🔄 Monitorando conquistas a cada 30s, novos jogos a cada 5min.');
 
-    try {
-      const dono = await client.users.fetch(DONO_ID);
-      await dono.send('🚀 Bot Steam Família está online! Comando /conquista (por jogo) adicionado.');
-    } catch (_) {}
+    // 🔥 REMOVIDO: mensagem de boas-vindas para o dono
+    // Não envia mais mensagem no privado
+
   } catch (err) {
     console.error('❌ ERRO FATAL NO EVENTO clientReady:', err);
     console.error('❌ Stack:', err.stack);
