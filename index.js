@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (CORRIGIDO)
+// BOT STEAM FAMÍLIA - VERSÃO FINAL CORRIGIDA
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1121,6 +1121,8 @@ async function carregarMapeamentoDoCanal(channel) {
 // ============================================================
 // 14. EVENTO clientReady
 // ============================================================
+let botIniciado = false;
+
 client.once('clientReady', async () => {
   console.log(`✅ Bot online como ${client.user.tag}`);
   console.log(`📋 Banco de dados armazenado como anexo no canal: <#${QUERO_CHANNEL}>`);
@@ -1203,13 +1205,16 @@ client.once('clientReady', async () => {
     setInterval(verificarPromocoesQuero, 5 * 60 * 1000);
     console.log('🔄 Monitorando conquistas a cada 30s, novos jogos a cada 5min.');
 
-    // 🔥 CORREÇÃO: Só envia a mensagem uma vez
-    try {
-      const dono = await client.users.fetch(DONO_ID);
-      await dono.send('🚀 Bot Steam Família está online! Comando /conquista (por jogo) adicionado.');
-      console.log('✅ Mensagem de inicialização enviada ao dono.');
-    } catch (err) {
-      console.log('⚠️ Não foi possível enviar mensagem ao dono:', err.message);
+    // 🔥 CORREÇÃO: Só envia a mensagem UMA VEZ
+    if (!botIniciado) {
+      botIniciado = true;
+      try {
+        const dono = await client.users.fetch(DONO_ID);
+        await dono.send('🚀 Bot Steam Família está online! Comando /conquista (por jogo) adicionado.');
+        console.log('✅ Mensagem de inicialização enviada ao dono.');
+      } catch (err) {
+        console.log('⚠️ Não foi possível enviar mensagem ao dono:', err.message);
+      }
     }
   } catch (err) {
     console.error('❌ ERRO FATAL NO EVENTO clientReady:', err);
@@ -1416,7 +1421,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (CORRIGIDO)
+  // 🔥 COMANDO /conquista (CORRIGIDO - NÃO REPETE CONQUISTAS)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
