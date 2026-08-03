@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (BOTÃO PARA VÍDEO NA DM - APENAS MEGA MAN X + TRADUÇÃO)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (BOTÃO PARA VÍDEO NA DM - APENAS MEGA MAN X)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -25,15 +25,13 @@ const {
   QUERO_CHANNEL_ID,
   RULES_CHANNEL_ID,
   DONO_ID,
-  YOUTUBE_API_KEY,
-  GOOGLE_TRANSLATE_API_KEY
+  YOUTUBE_API_KEY
 } = process.env;
 
 console.log('🚀 [3] Variáveis lidas.');
 console.log(`📌 DISCORD_TOKEN presente: ${DISCORD_TOKEN ? 'SIM' : 'NÃO'}`);
 console.log(`📌 QUERO_CHANNEL_ID: ${QUERO_CHANNEL_ID || 'NÃO DEFINIDO'}`);
 console.log(`📌 YOUTUBE_API_KEY presente: ${YOUTUBE_API_KEY ? 'SIM' : 'NÃO'}`);
-console.log(`📌 GOOGLE_TRANSLATE_API_KEY presente: ${GOOGLE_TRANSLATE_API_KEY ? 'SIM' : 'NÃO'}`);
 
 if (!DISCORD_TOKEN || !STEAM_KEY || !STEAM_IDS || !CHANNEL_ID || !QUERO_CHANNEL_ID || !RULES_CHANNEL_ID) {
   console.error('❌ Variáveis obrigatórias ausentes. Verifique .env');
@@ -435,112 +433,6 @@ async function getAchievementDescription(appId, apiname) {
     console.error(`❌ Erro ao buscar descrição da conquista ${apiname} para o jogo ${appId}:`, e.message);
   }
   return null;
-}
-
-// ============================================================
-// 6.2 FUNÇÃO DE TRADUÇÃO (Google Translate API + Fallback)
-// ============================================================
-const translationCache = new Map();
-
-async function traduzirTextoGoogle(texto, targetLang = 'pt') {
-  if (!texto || texto.length < 3) return texto;
-  
-  // Verifica se já está em português (heurística)
-  const palavras = texto.split(' ');
-  let acentos = 0;
-  for (const palavra of palavras) {
-    if (/[áàâãéêíóôõúç]/i.test(palavra)) acentos++;
-  }
-  if (acentos > 1) return texto;
-
-  const cacheKey = `${texto}_${targetLang}`;
-  if (translationCache.has(cacheKey)) return translationCache.get(cacheKey);
-
-  // Tenta Google Translate API primeiro
-  if (GOOGLE_TRANSLATE_API_KEY) {
-    try {
-      const url = `https://translation.googleapis.com/language/translate/v2`;
-      const response = await axios.post(url, {
-        q: texto,
-        target: targetLang,
-        format: 'text',
-        source: 'en'
-      }, {
-        params: {
-          key: GOOGLE_TRANSLATE_API_KEY
-        },
-        timeout: 5000,
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      if (response.data && response.data.data && response.data.data.translations && response.data.data.translations[0]) {
-        const traduzido = response.data.data.translations[0].translatedText;
-        if (traduzido && !traduzido.includes('INVALID') && !traduzido.includes('ERROR')) {
-          translationCache.set(cacheKey, traduzido);
-          return traduzido;
-        }
-      }
-    } catch (e) {
-      console.warn(`⚠️ Google Translate API falhou: ${e.message}`);
-    }
-  }
-
-  // Fallback: LibreTranslate
-  const servers = [
-    'https://libretranslate.com/translate',
-    'https://translate.argosopentech.com/translate',
-  ];
-
-  for (const server of servers) {
-    try {
-      const response = await axios.post(server, {
-        q: texto,
-        source: 'en',
-        target: targetLang,
-        format: 'text'
-      }, {
-        timeout: 5000,
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      if (response.data && response.data.translatedText) {
-        const traduzido = response.data.translatedText;
-        if (!traduzido.includes('INVALID') && !traduzido.includes('ERROR')) {
-          translationCache.set(cacheKey, traduzido);
-          return traduzido;
-        }
-      }
-    } catch (e) {
-      console.warn(`⚠️ Falha no servidor ${server}: ${e.message}`);
-      continue;
-    }
-  }
-
-  // Fallback final: MyMemory
-  try {
-    const url = 'https://api.mymemory.translated.net/get';
-    const response = await axios.get(url, {
-      params: {
-        q: texto,
-        langpair: `en|${targetLang}`,
-        de: 'steam-family-bot'
-      },
-      timeout: 5000
-    });
-    if (response.data && response.data.responseData && response.data.responseData.translatedText) {
-      const traduzido = response.data.responseData.translatedText;
-      if (!traduzido.includes('INVALID') && !traduzido.includes('ERROR')) {
-        translationCache.set(cacheKey, traduzido);
-        return traduzido;
-      }
-    }
-  } catch (e) {
-    console.warn('⚠️ Fallback MyMemory falhou:', e.message);
-  }
-
-  // Fallback final: mantém o original
-  translationCache.set(cacheKey, texto);
-  return texto;
 }
 
 // ============================================================
@@ -1420,7 +1312,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM TRADUÇÃO + BOTÃO APENAS PARA MEGA MAN X)
+  // 🔥 COMANDO /conquista (SEM TRADUÇÃO - BOTÃO APENAS PARA MEGA MAN X)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1534,65 +1426,24 @@ client.on('interactionCreate', async (interaction) => {
     totalConquistas = conquistasList.length;
 
     // ============================================================
-    // FUNÇÕES PARA GERAR O MENU E AS EMBEDS (COM TRADUÇÃO)
+    // FUNÇÕES PARA GERAR O MENU E AS EMBEDS (SEM TRADUÇÃO)
     // ============================================================
     const ITEMS_PER_PAGE = 25;
     let currentPage = 0;
 
-    // Função para gerar a embed da conquista selecionada (SEM o campo de vídeo)
+    // Função para gerar a embed da conquista selecionada (SEM link de vídeo)
     async function generateAchievementEmbed(ach) {
-      // Prioridade: campo "video" do JSON (forçando HTTPS)
-      let videoLink = ach.video ? ach.video.replace(/^http:/, 'https:') : null;
-
-      // Se não tiver vídeo no JSON e tiver chave da API, tenta buscar automaticamente (fallback)
-      if (!videoLink && YOUTUBE_API_KEY) {
-        try {
-          const searchQuery = `Mega Man X Legacy Collection ${encodeURIComponent(ach.displayName)}`;
-          const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
-            params: {
-              part: 'snippet',
-              type: 'video',
-              maxResults: 1,
-              q: searchQuery,
-              key: YOUTUBE_API_KEY
-            },
-            timeout: 5000
-          });
-          const videoId = response.data.items?.[0]?.id?.videoId;
-          if (videoId) {
-            videoLink = `https://www.youtube.com/watch?v=${videoId}`;
-          }
-        } catch (e) {
-          console.error('Erro ao buscar vídeo no YouTube:', e.message);
-        }
+      // Prioridade: campo "video" do JSON (forçando HTTPS) - APENAS PARA MEGA MAN X
+      let videoLink = null;
+      if (isMegaManX && ach.video) {
+        videoLink = ach.video.replace(/^http:/, 'https:');
       }
 
-      // Fallback: link da Steam
+      // Fallback: link da Steam (NUNCA usa YouTube para outros jogos)
       const url = videoLink || `https://store.steampowered.com/app/${appid}`;
 
-      // 🔥 OBTÉM A DESCRIÇÃO COM TRADUÇÃO
-      let descricao = ach.description || 'Sem descrição';
-
-      // Se NÃO for Mega Man X (que já tem descrição em português no JSON)
-      if (!isMegaManX) {
-        // Verifica se a descrição já está em português
-        const palavras = descricao.split(' ');
-        let acentos = 0;
-        for (const palavra of palavras) {
-          if (/[áàâãéêíóôõúç]/i.test(palavra)) acentos++;
-        }
-        // Se não tiver acentos, provavelmente está em inglês -> traduz
-        if (acentos < 2) {
-          console.log(`🔄 Traduzindo descrição: "${descricao.substring(0, 30)}..."`);
-          const traduzida = await traduzirTextoGoogle(descricao);
-          if (traduzida && !traduzida.includes('INVALID') && !traduzida.includes('ERROR')) {
-            descricao = traduzida;
-            console.log(`✅ Tradução concluída: "${descricao.substring(0, 30)}..."`);
-          } else {
-            console.warn(`⚠️ Tradução falhou, mantendo original.`);
-          }
-        }
-      }
+      // 🔥 DESCRIÇÃO ORIGINAL (SEM TRADUÇÃO)
+      const descricao = ach.description || 'Sem descrição';
 
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
@@ -1686,7 +1537,7 @@ client.on('interactionCreate', async (interaction) => {
         const selectedIndex = parseInt(i.values[0]);
         const ach = conquistasList[selectedIndex];
 
-        // Gerar embed e link do vídeo (com tradução)
+        // Gerar embed e link do vídeo
         const { embed, videoLink } = await generateAchievementEmbed(ach);
 
         // Botão para voltar à lista
