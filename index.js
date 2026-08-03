@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (BOTÃO PARA VÍDEO NA DM - APENAS MEGA MAN X)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (PÁGINAS POR JOGO)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -967,7 +967,7 @@ console.log('🚀 [12] Cliente Discord criado.');
 // ============================================================
 // 13. CARREGAR MAPEAMENTO DE CONQUISTAS DO CANAL #lista-quero
 // ============================================================
-let conquestMappings = null;
+let conquestMappings = {};
 // Mapa para armazenar links de vídeo para botões em DMs
 const videoLinksMap = new Map();
 
@@ -993,25 +993,34 @@ async function carregarMapeamentoConquistas() {
 async function carregarMapeamentoDoCanal(channel) {
   try {
     const messages = await channel.messages.fetch({ limit: 50 });
-    const msg = messages.find(m => 
+    const allMappings = {};
+
+    // Procura por TODOS os arquivos .json no canal
+    const jsonMessages = messages.filter(m => 
       m.attachments.size > 0 && 
-      m.attachments.some(a => a.name === 'megaman_x_achievements.json')
+      m.attachments.some(a => a.name.endsWith('.json'))
     );
-    if (!msg) {
-      console.warn('⚠️ Nenhuma mensagem com o arquivo megaman_x_achievements.json encontrada.');
-      messages.forEach(m => {
-        m.attachments.forEach(a => console.log(`📎 Anexo encontrado: ${a.name}`));
-      });
-      return null;
+
+    for (const [, msg] of jsonMessages) {
+      for (const attachment of msg.attachments.values()) {
+        if (attachment.name.endsWith('.json')) {
+          console.log(`📥 Baixando anexo: ${attachment.name}`);
+          try {
+            const response = await axios.get(attachment.url, { responseType: 'json' });
+            // Mescla os dados de cada arquivo
+            Object.assign(allMappings, response.data);
+            console.log(`✅ ${Object.keys(response.data).length} conquistas carregadas de ${attachment.name}`);
+          } catch (e) {
+            console.error(`❌ Erro ao carregar ${attachment.name}:`, e.message);
+          }
+        }
+      }
     }
 
-    const attachment = msg.attachments.find(a => a.name === 'megaman_x_achievements.json');
-    console.log(`📥 Baixando anexo de ${attachment.url}`);
-    const response = await axios.get(attachment.url, { responseType: 'json' });
-    console.log(`✅ Mapeamento carregado: ${Object.keys(response.data).length} conquistas`);
-    return response.data;
+    console.log(`✅ Total de conquistas carregadas: ${Object.keys(allMappings).length}`);
+    return allMappings;
   } catch (e) {
-    console.error('❌ Erro ao carregar mapeamento:', e.message);
+    console.error('❌ Erro ao carregar mapeamentos:', e.message);
     if (e.response) console.error('Status HTTP:', e.response.status);
     return null;
   }
@@ -1062,7 +1071,7 @@ client.once('clientReady', async () => {
     // Carrega o mapeamento de conquistas do Mega Man X
     conquestMappings = await carregarMapeamentoConquistas();
     if (conquestMappings) {
-      console.log(`✅ Mapeamento de conquistas do Mega Man X carregado com sucesso.`);
+      console.log(`✅ Mapeamento de conquistas carregado com sucesso.`);
     } else {
       console.warn('⚠️ Mapeamento não carregado. As imagens personalizadas não serão usadas.');
     }
@@ -1308,7 +1317,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM FILTRO APENAS PARA MEGA MAN X)
+  // 🔥 COMANDO /conquista (COM PÁGINAS POR JOGO - MEGA MAN X)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1362,15 +1371,30 @@ client.on('interactionCreate', async (interaction) => {
       // 🔥 FILTRA O JSON: remove as conquistas que já estão desbloqueadas (pelo nome)
       const todasConquistas = Object.keys(conquestMappings);
       conquistasList = todasConquistas
-        .filter(nome => !desbloqueadas.includes(nome)) // Só as que NÃO estão na lista de desbloqueadas
+        .filter(nome => !desbloqueadas.includes(nome))
         .map(nome => ({
           name: nome,
           displayName: nome,
           description: conquestMappings[nome].description || 'Sem descrição',
           iconUrl: conquestMappings[nome].image || null,
-          video: conquestMappings[nome].video || null
+          video: conquestMappings[nome].video || null,
+          game: conquestMappings[nome].game || 'X1' // Adiciona o campo game
         }));
-      conquistasList.sort((a, b) => a.name.localeCompare(b.name));
+      
+      // 🔥 ORDENA POR JOGO (X1, X2, X3, X4, X Challenge)
+      const GAME_ORDER = ['X1', 'X2', 'X3', 'X4', 'X Challenge'];
+      conquistasList.sort((a, b) => {
+        const gameA = a.game || 'X1';
+        const gameB = b.game || 'X1';
+        const indexA = GAME_ORDER.indexOf(gameA);
+        const indexB = GAME_ORDER.indexOf(gameB);
+        
+        if (indexA !== indexB) {
+          return indexA - indexB;
+        }
+        // Se for do mesmo jogo, mantém a ordem do JSON
+        return 0;
+      });
       
       console.log(`📋 ${conquistasList.length} conquistas faltantes para Mega Man X`);
       console.log(`📋 Total de conquistas no JSON: ${todasConquistas.length}`);
@@ -1429,44 +1453,57 @@ client.on('interactionCreate', async (interaction) => {
     totalConquistas = conquistasList.length;
 
     // ============================================================
-    // FUNÇÕES PARA GERAR O MENU E AS EMBEDS (SEM TRADUÇÃO)
+    // FUNÇÕES PARA GERAR O MENU E AS EMBEDS (COM PÁGINAS POR JOGO)
     // ============================================================
     const ITEMS_PER_PAGE = 25;
     let currentPage = 0;
 
-    // Função para gerar a embed da conquista selecionada (SEM link de vídeo)
-    async function generateAchievementEmbed(ach) {
-      // Prioridade: campo "video" do JSON (forçando HTTPS) - APENAS PARA MEGA MAN X
-      let videoLink = null;
-      if (isMegaManX && ach.video) {
-        videoLink = ach.video.replace(/^http:/, 'https:');
-      }
+    // Mapeamento de jogos para emojis
+    const GAME_EMOJIS = {
+      'X1': '🔵',
+      'X2': '🟢',
+      'X3': '🟠',
+      'X4': '🔴',
+      'X Challenge': '⭐',
+      'Mega Man X1': '🔵',
+      'Mega Man X2': '🟢',
+      'Mega Man X3': '🟠',
+      'Mega Man X4': '🔴'
+    };
 
-      // Fallback: link da Steam (NUNCA usa YouTube para outros jogos)
-      const url = videoLink || `https://store.steampowered.com/app/${appid}`;
+    // Nomes dos jogos para exibição
+    const GAME_NAMES = {
+      'X1': 'Mega Man X1',
+      'X2': 'Mega Man X2',
+      'X3': 'Mega Man X3',
+      'X4': 'Mega Man X4',
+      'X Challenge': 'X Challenge'
+    };
 
-      // 🔥 DESCRIÇÃO ORIGINAL (SEM TRADUÇÃO)
-      const descricao = ach.description || 'Sem descrição';
+    // Função para gerar a embed da página de um jogo
+    async function generateGamePageEmbed(page) {
+      const start = page * ITEMS_PER_PAGE;
+      const end = Math.min(start + ITEMS_PER_PAGE, totalConquistas);
+      const pageItems = conquistasList.slice(start, end);
+
+      // Determina o jogo da página atual
+      const currentGame = pageItems[0]?.game || 'X1';
+      const gameName = GAME_NAMES[currentGame] || currentGame;
+      const gameEmoji = GAME_EMOJIS[currentGame] || '🎮';
+
+      // Conta quantas conquistas deste jogo estão na página
+      const totalInGame = conquistasList.filter(a => a.game === currentGame).length;
 
       const embed = new EmbedBuilder()
-        .setColor(0xFFD700)
-        .setTitle(`🏆 ${ach.displayName}`)
-        .setURL(url)
-        .setDescription(descricao)
-        .addFields(
-          { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
-          { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true }
-        )
-        .setFooter({ text: `Selecione outra conquista no menu abaixo` })
+        .setColor(0x00AE86)
+        .setTitle(`📌 ${gameEmoji} ${gameName} (${totalInGame} conquistas faltantes)`)
+        .setDescription(`Selecione uma conquista no menu abaixo para ver os detalhes.`)
+        .setFooter({ 
+          text: `Página ${Math.floor(page / (totalInGame / ITEMS_PER_PAGE)) + 1} de ${Math.ceil(totalConquistas / ITEMS_PER_PAGE)} | ${conquistasList.length} conquistas faltantes no total` 
+        })
         .setTimestamp();
 
-      if (ach.iconUrl) {
-        embed.setThumbnail(ach.iconUrl);
-      } else {
-        embed.setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png');
-      }
-
-      return { embed, videoLink };
+      return { embed, currentGame };
     }
 
     // Função para gerar o Select Menu com as conquistas da página atual
@@ -1508,6 +1545,40 @@ client.on('interactionCreate', async (interaction) => {
             .setStyle(ButtonStyle.Primary)
             .setDisabled(page === totalPages - 1)
         );
+    }
+
+    // Função para gerar a embed da conquista selecionada
+    async function generateAchievementEmbed(ach) {
+      // Prioridade: campo "video" do JSON (forçando HTTPS) - APENAS PARA MEGA MAN X
+      let videoLink = null;
+      if (isMegaManX && ach.video) {
+        videoLink = ach.video.replace(/^http:/, 'https:');
+      }
+
+      // Fallback: link da Steam
+      const url = videoLink || `https://store.steampowered.com/app/${appid}`;
+
+      const descricao = ach.description || 'Sem descrição';
+
+      const embed = new EmbedBuilder()
+        .setColor(0xFFD700)
+        .setTitle(`🏆 ${ach.displayName}`)
+        .setURL(url)
+        .setDescription(descricao)
+        .addFields(
+          { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
+          { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true }
+        )
+        .setFooter({ text: `Selecione outra conquista no menu abaixo` })
+        .setTimestamp();
+
+      if (ach.iconUrl) {
+        embed.setThumbnail(ach.iconUrl);
+      } else {
+        embed.setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png');
+      }
+
+      return { embed, videoLink };
     }
 
     // ============================================================
@@ -1598,6 +1669,10 @@ client.on('interactionCreate', async (interaction) => {
 
       // Caso 2: Botão "Voltar à lista"
       if (i.customId === 'back_to_list') {
+        // Determina a página atual baseada no jogo
+        // Para simplificar, volta para a primeira página
+        currentPage = 0;
+        
         const embed = new EmbedBuilder()
           .setColor(0x00AE86)
           .setTitle(`📋 Conquistas faltantes de ${jogoInfo.nome}`)
@@ -1621,6 +1696,7 @@ client.on('interactionCreate', async (interaction) => {
         if (i.customId === 'prev_page' && currentPage > 0) currentPage--;
         if (i.customId === 'next_page' && currentPage < Math.ceil(totalConquistas / ITEMS_PER_PAGE) - 1) currentPage++;
 
+        // Gera a embed da página com o jogo atual
         const embed = new EmbedBuilder()
           .setColor(0x00AE86)
           .setTitle(`📋 Conquistas faltantes de ${jogoInfo.nome}`)
@@ -1676,7 +1752,7 @@ client.on('interactionCreate', async (interaction) => {
     try {
       await interaction.reply({
         content: videoLink,
-        ephemeral: false // Envia como mensagem normal (não efêmera) para ativar o player
+        ephemeral: false
       });
     } catch (err) {
       console.error('Erro ao enviar vídeo:', err);
