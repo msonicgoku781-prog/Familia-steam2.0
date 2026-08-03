@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (BOTÃO PARA VÍDEO NA DM - APENAS MEGA MAN X + TRADUÇÃO)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (COM ÍCONES VIA API)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -436,21 +436,52 @@ async function getAchievementDescription(appId, apiname) {
 }
 
 // ============================================================
+// 6.1 FUNÇÃO PARA OBTER URL DO ÍCONE COM PROXY E FALLBACK
+// ============================================================
+async function getAchievementImageUrl(appId, apiname) {
+  try {
+    const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
+    const params = { key: STEAM_KEY, appid: appId, l: 'portuguese' };
+    const data = await fetchSteam(url, params, 2);
+    
+    if (data?.game?.availableGameStats?.achievements) {
+      const ach = data.game.availableGameStats.achievements.find(a => a.name === apiname);
+      if (ach && ach.icon) {
+        const originalUrl = `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`;
+        
+        // Tenta usar um proxy para evitar bloqueios
+        try {
+          const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(originalUrl)}&w=200&h=200&fit=cover`;
+          const test = await axios.head(proxyUrl, { timeout: 3000 });
+          if (test.status === 200) {
+            return proxyUrl;
+          }
+        } catch (_) {}
+
+        // Fallback: retorna a URL original (pode dar erro 403, mas vale tentar)
+        return originalUrl;
+      }
+    }
+  } catch (e) {
+    console.log(`⚠️ Erro ao buscar imagem para ${apiname}:`, e.message);
+  }
+  return null;
+}
+
+// ============================================================
 // 6.2 FUNÇÃO DE TRADUÇÃO (MyMemory API) - COM VALIDAÇÃO
 // ============================================================
 const translationCache = new Map();
 
 async function traduzirTexto(texto, targetLang = 'pt') {
   if (!texto || texto.length < 3) return texto;
-  // Se o texto já estiver em português (detecção simples: caracteres acentuados comuns), evita traduzir
   const palavras = texto.split(' ');
   let acentos = 0;
   for (const palavra of palavras) {
     if (/[áàâãéêíóôõúç]/i.test(palavra)) acentos++;
   }
-  if (acentos > 1) return texto; // já parece português
+  if (acentos > 1) return texto;
 
-  // Verifica cache
   const cacheKey = `${texto}_${targetLang}`;
   if (translationCache.has(cacheKey)) return translationCache.get(cacheKey);
 
@@ -464,10 +495,8 @@ async function traduzirTexto(texto, targetLang = 'pt') {
       },
       timeout: 5000
     });
-    // Verifica se a resposta contém erro ou mensagem inválida
     if (response.data && response.data.responseData && response.data.responseData.translatedText) {
       const traduzido = response.data.responseData.translatedText;
-      // Verifica se a tradução não é uma mensagem de erro (como "INVALID EMAIL PROVIDED")
       if (!traduzido.includes('INVALID') && !traduzido.includes('ERROR')) {
         translationCache.set(cacheKey, traduzido);
         return traduzido;
@@ -476,56 +505,8 @@ async function traduzirTexto(texto, targetLang = 'pt') {
   } catch (e) {
     console.error('❌ Erro ao traduzir texto:', e.message);
   }
-  // Fallback: mantém o original
   translationCache.set(cacheKey, texto);
   return texto;
-}
-
-// ============================================================
-// 6.1 FUNÇÃO PARA OBTER URL DO ÍCONE COM PROXY E FALLBACK
-// ============================================================
-async function getAchievementImage(appId, apiname) {
-  try {
-    const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
-    const params = { key: STEAM_KEY, appid: appId, l: 'portuguese' };
-    const data = await fetchSteam(url, params, 2);
-    
-    if (data?.game?.availableGameStats?.achievements) {
-      const ach = data.game.availableGameStats.achievements.find(a => a.name === apiname);
-      if (ach && ach.icon) {
-        const originalUrl = `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`;
-        
-        try {
-          const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(originalUrl)}&w=200&h=200&fit=cover`;
-          const test = await axios.head(proxyUrl, { timeout: 3000 });
-          if (test.status === 200) {
-            return { type: 'url', url: proxyUrl };
-          }
-        } catch (_) {}
-
-        try {
-          const response = await axios.get(originalUrl, {
-            responseType: 'arraybuffer',
-            timeout: 5000,
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-              'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-              'Referer': 'https://store.steampowered.com/'
-            }
-          });
-          if (response.status === 200 && response.data && response.data.length > 100) {
-            const buffer = Buffer.from(response.data);
-            const filename = `achievement_${appId}_${apiname.replace(/[^a-zA-Z0-9]/g, '_')}.jpg`;
-            return { type: 'attachment', buffer, filename };
-          }
-        } catch (_) {}
-      }
-    }
-  } catch (e) {
-    console.log(`⚠️ Erro ao buscar imagem para ${apiname}:`, e.message);
-  }
-  return null;
 }
 
 console.log('🚀 [8] Funções da Steam API carregadas.');
@@ -1014,7 +995,6 @@ console.log('🚀 [12] Cliente Discord criado.');
 // 13. CARREGAR MAPEAMENTO DE CONQUISTAS DO CANAL #lista-quero
 // ============================================================
 let conquestMappings = null;
-// Mapa para armazenar links de vídeo para botões em DMs
 const videoLinksMap = new Map();
 
 async function carregarMapeamentoConquistas() {
@@ -1045,9 +1025,6 @@ async function carregarMapeamentoDoCanal(channel) {
     );
     if (!msg) {
       console.warn('⚠️ Nenhuma mensagem com o arquivo megaman_x_achievements.json encontrada.');
-      messages.forEach(m => {
-        m.attachments.forEach(a => console.log(`📎 Anexo encontrado: ${a.name}`));
-      });
       return null;
     }
 
@@ -1058,7 +1035,6 @@ async function carregarMapeamentoDoCanal(channel) {
     return response.data;
   } catch (e) {
     console.error('❌ Erro ao carregar mapeamento:', e.message);
-    if (e.response) console.error('Status HTTP:', e.response.status);
     return null;
   }
 }
@@ -1105,7 +1081,6 @@ client.once('clientReady', async () => {
       await salvarDBNoCanal();
     }
 
-    // Carrega o mapeamento de conquistas do Mega Man X
     conquestMappings = await carregarMapeamentoConquistas();
     if (conquestMappings) {
       console.log(`✅ Mapeamento de conquistas do Mega Man X carregado com sucesso.`);
@@ -1358,7 +1333,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM TRADUÇÃO + BOTÃO APENAS PARA MEGA MAN X)
+  // 🔥 COMANDO /conquista (COM ÍCONES VIA API + TRADUÇÃO)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1472,12 +1447,8 @@ client.on('interactionCreate', async (interaction) => {
     totalConquistas = conquistasList.length;
 
     // ============================================================
-    // FUNÇÕES PARA GERAR O MENU E AS EMBEDS (COM TRADUÇÃO)
+    // FUNÇÃO GERAR EMBED DA CONQUISTA (COM ÍCONE VIA API)
     // ============================================================
-    const ITEMS_PER_PAGE = 25;
-    let currentPage = 0;
-
-    // Função para gerar a embed da conquista selecionada (SEM o campo de vídeo)
     async function generateAchievementEmbed(ach) {
       // Prioridade: campo "video" do JSON (forçando HTTPS)
       let videoLink = ach.video ? ach.video.replace(/^http:/, 'https:') : null;
@@ -1485,7 +1456,7 @@ client.on('interactionCreate', async (interaction) => {
       // Se não tiver vídeo no JSON e tiver chave da API, tenta buscar automaticamente (fallback)
       if (!videoLink && YOUTUBE_API_KEY) {
         try {
-          const searchQuery = `Mega Man X Legacy Collection ${encodeURIComponent(ach.displayName)}`;
+          const searchQuery = `${jogoInfo.nome} ${encodeURIComponent(ach.displayName)}`;
           const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
             params: {
               part: 'snippet',
@@ -1512,10 +1483,24 @@ client.on('interactionCreate', async (interaction) => {
       let descricao = ach.description || 'Sem descrição';
       if (!isMegaManX) {
         descricao = await traduzirTexto(descricao);
-        // Se a tradução falhou e retornou uma mensagem de erro, mantém o original
         if (descricao.includes('INVALID') || descricao.includes('ERROR')) {
           descricao = ach.description || 'Sem descrição';
         }
+      }
+
+      // 🔥 BUSCA A IMAGEM DO ÍCONE VIA API STEAM
+      let imageUrl = ach.iconUrl || null;
+      if (!imageUrl) {
+        try {
+          imageUrl = await getAchievementImageUrl(appid, ach.name);
+        } catch (e) {
+          console.warn(`⚠️ Erro ao buscar imagem para ${ach.name}:`, e.message);
+        }
+      }
+
+      // Fallback: imagem genérica do jogo
+      if (!imageUrl) {
+        imageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
       }
 
       const embed = new EmbedBuilder()
@@ -1526,21 +1511,20 @@ client.on('interactionCreate', async (interaction) => {
         .addFields(
           { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
           { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true }
-          // O campo de vídeo foi removido da embed – será substituído por um botão (apenas para Mega Man X)
         )
+        .setThumbnail(imageUrl)
         .setFooter({ text: `Selecione outra conquista no menu abaixo` })
         .setTimestamp();
-
-      if (ach.iconUrl) {
-        embed.setThumbnail(ach.iconUrl);
-      } else {
-        embed.setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png');
-      }
 
       return { embed, videoLink };
     }
 
-    // Função para gerar o Select Menu com as conquistas da página atual
+    // ============================================================
+    // FUNÇÕES PARA GERAR O MENU E AS EMBEDS
+    // ============================================================
+    const ITEMS_PER_PAGE = 25;
+    let currentPage = 0;
+
     function generateSelectMenu(page) {
       const start = page * ITEMS_PER_PAGE;
       const end = Math.min(start + ITEMS_PER_PAGE, totalConquistas);
@@ -1563,7 +1547,6 @@ client.on('interactionCreate', async (interaction) => {
       return selectMenu;
     }
 
-    // Função para gerar os botões de navegação de página
     function generatePaginationButtons(page) {
       const totalPages = Math.ceil(totalConquistas / ITEMS_PER_PAGE);
       return new ActionRowBuilder()
@@ -1611,7 +1594,7 @@ client.on('interactionCreate', async (interaction) => {
         const selectedIndex = parseInt(i.values[0]);
         const ach = conquistasList[selectedIndex];
 
-        // Gerar embed e link do vídeo (com tradução)
+        // Gerar embed com ícone
         const { embed, videoLink } = await generateAchievementEmbed(ach);
 
         // Botão para voltar à lista
@@ -1623,15 +1606,13 @@ client.on('interactionCreate', async (interaction) => {
               .setStyle(ButtonStyle.Secondary)
           );
 
-        // Envia a embed na DM – com botão de vídeo APENAS para Mega Man X
         try {
           const user = await client.users.fetch(i.user.id);
 
-          // Cria os componentes (backButton + videoButton, se for Mega Man X)
+          // Cria os componentes (backButton + videoButton, se houver)
           const components = [backButton];
 
-          // 🔥 BOTÃO DE VÍDEO APENAS PARA MEGA MAN X E SE HOUVER LINK
-          if (isMegaManX && videoLink) {
+          if (videoLink) {
             const videoButton = new ActionRowBuilder()
               .addComponents(
                 new ButtonBuilder()
@@ -1640,19 +1621,16 @@ client.on('interactionCreate', async (interaction) => {
                   .setStyle(ButtonStyle.Primary)
               );
             components.push(videoButton);
-            // Salva o link do vídeo no mapa global
             videoLinksMap.set(`video_${i.user.id}_${ach.name.slice(0, 20)}`, videoLink);
           }
 
-          // Envia a mensagem com a embed e os componentes
           await user.send({
             embeds: [embed],
             components: components
           });
 
-          // Atualiza a mensagem efêmera no canal para confirmar o envio
           await i.update({
-            content: `✅ **Detalhes da conquista "${ach.displayName}" enviados na sua DM!** ${isMegaManX && videoLink ? 'Clique no botão para assistir ao vídeo.' : ''}`,
+            content: `✅ **Detalhes da conquista "${ach.displayName}" enviados na sua DM!** ${videoLink ? 'Clique no botão para assistir ao vídeo.' : ''}`,
             embeds: [],
             components: [backButton]
           });
@@ -1731,9 +1709,7 @@ client.on('interactionCreate', async (interaction) => {
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
 
-  // Verifica se é um botão de vídeo (customId começa com 'video_')
   if (interaction.customId.startsWith('video_')) {
-    // Busca o link do vídeo no mapa
     const videoLink = videoLinksMap.get(interaction.customId);
     if (!videoLink) {
       await interaction.reply({
@@ -1743,11 +1719,10 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    // Envia o link do vídeo na mesma DM (ativa o player)
     try {
       await interaction.reply({
         content: videoLink,
-        ephemeral: false // Envia como mensagem normal (não efêmera) para ativar o player
+        ephemeral: false
       });
     } catch (err) {
       console.error('Erro ao enviar vídeo:', err);
