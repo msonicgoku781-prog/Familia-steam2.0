@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - COM TIMEOUTS E CORREÇÕES
+// BOT STEAM FAMÍLIA - CORRIGIDO (SEM EDITREPLY DUPLICADO)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -81,8 +81,6 @@ console.log('🚀 [5] Constantes definidas.');
 // ============================================================
 let db = null;
 let dbMessageId = null;
-
-// 🔥 CACHE DE VÍDEOS (persistente no Discord)
 let videoCache = {};
 let videoCacheMessageId = null;
 const VIDEO_CACHE_FILENAME = 'video_cache.json';
@@ -199,15 +197,9 @@ async function inicializarDB() {
   }
 }
 
-// ============================================================
-// 4.2 CACHE DE VÍDEOS (PERSISTENTE NO DISCORD)
-// ============================================================
 async function carregarVideoCache() {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
-  if (!channel) {
-    console.error('❌ Canal QUERO_CHANNEL não encontrado para cache de vídeos!');
-    return;
-  }
+  if (!channel) return;
   try {
     const messages = await channel.messages.fetch({ limit: 50 });
     const cacheMsg = messages.find(m => m.content === 'VIDEO_CACHE' && m.attachments.size > 0);
@@ -231,10 +223,7 @@ async function carregarVideoCache() {
 
 async function salvarVideoCache() {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
-  if (!channel) {
-    console.error('❌ Canal QUERO_CHANNEL não encontrado para salvar cache de vídeos!');
-    return false;
-  }
+  if (!channel) return false;
   try {
     if (videoCacheMessageId) {
       try {
@@ -261,7 +250,7 @@ async function salvarVideoCache() {
 async function getVideoFromCache(jogo, conquista) {
   const key = `${jogo}|${conquista}`.toLowerCase();
   if (videoCache[key]) {
-    console.log(`✅ [CACHE] Vídeo encontrado para "${conquista}" no cache persistente`);
+    console.log(`✅ [CACHE] Vídeo encontrado para "${conquista}"`);
     return videoCache[key];
   }
   return null;
@@ -271,7 +260,7 @@ async function saveVideoToCache(jogo, conquista, videoInfo) {
   const key = `${jogo}|${conquista}`.toLowerCase();
   videoCache[key] = videoInfo;
   salvarVideoCache().catch(e => console.error('❌ Erro ao salvar cache:', e));
-  console.log(`✅ [CACHE] Vídeo salvo no cache persistente para "${conquista}"`);
+  console.log(`✅ [CACHE] Vídeo salvo no cache para "${conquista}"`);
 }
 
 console.log('🚀 [6] Funções de banco de dados e cache definidas.');
@@ -346,7 +335,7 @@ async function listarQuero(discordId) {
 console.log('🚀 [7] Funções /quero carregadas.');
 
 // ============================================================
-// 6. FUNÇÕES DA STEAM API (RESUMIDAS)
+// 6. FUNÇÕES DA STEAM API
 // ============================================================
 let ultimaRequisicao = 0;
 const MIN_INTERVALO = 1500;
@@ -529,9 +518,6 @@ async function getAchievementDescription(appId, apiname) {
   return null;
 }
 
-// ============================================================
-// 6.1 FUNÇÃO DE TRADUÇÃO
-// ============================================================
 const translationCache = new Map();
 
 async function traduzirTexto(texto, targetLang = 'pt') {
@@ -739,7 +725,7 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 10. VERIFICAÇÃO DE CONQUISTAS E TAREFAS (RESUMIDO)
+// 10. VERIFICAÇÃO DE CONQUISTAS E TAREFAS
 // ============================================================
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length) return;
@@ -956,7 +942,6 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
       views: 0
     };
 
-    // Tenta buscar views, mas não espera
     try {
       const statsResponse = await Promise.race([
         axios.get('https://www.googleapis.com/youtube/v3/videos', {
@@ -976,7 +961,7 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
         }
       }
     } catch (e) {
-      console.log(`⚠️ Erro nas estatísticas (usando vídeo sem views): ${e.message}`);
+      console.log(`⚠️ Erro nas estatísticas: ${e.message}`);
     }
 
     console.log(`✅ VÍDEO ENCONTRADO: "${videoInfo.titulo}"`);
@@ -1122,7 +1107,7 @@ client.once('clientReady', async () => {
     if (!fs.existsSync(flagFile)) {
       fs.writeFileSync(flagFile, Date.now().toString());
       const dono = await client.users.fetch(DONO_ID);
-      await dono.send('🚀 Bot Steam Família está online! (Com timeouts)');
+      await dono.send('🚀 Bot Steam Família está online! (Corrigido)');
     }
   } catch (err) {
     console.error('❌ ERRO FATAL:', err);
@@ -1164,7 +1149,6 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      // Verifica se o jogo está na família
       let jogoNaFamilia = false;
       let donosDoJogo = [];
       
@@ -1212,7 +1196,6 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      // Buscar conquistas
       const isMegaManX = (appid === 743890);
       let conquistasSchema = [];
       let conquistasUsuario = [];
@@ -1267,7 +1250,6 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // Montar lista de conquistas
       let conquistasList = conquistasSchema.map(ach => {
         const nome = ach.name;
         const desbloqueada = conquistasUsuario.includes(nome);
@@ -1295,7 +1277,6 @@ client.on('interactionCreate', async (interaction) => {
       const usuarioTemJogo = donosDoJogo.some(d => d.steamId === userSteamId);
       const nomesDonos = donosDoJogo.map(d => d.nome).join(', ');
 
-      // Gerar embed da conquista
       async function generateAchievementEmbed(ach, index) {
         let imageUrl = ach.icon;
         if (imageUrl && !imageUrl.startsWith('http')) {
@@ -1363,7 +1344,6 @@ client.on('interactionCreate', async (interaction) => {
         return { embed, buttons };
       }
 
-      // Configurar paginação
       const ITEMS_PER_PAGE = 10;
       let currentPage = 0;
 
@@ -1408,7 +1388,6 @@ client.on('interactionCreate', async (interaction) => {
           );
       }
 
-      // Montar mensagem inicial
       let mensagemAcesso = '';
       if (usuarioTemJogo) {
         mensagemAcesso = `🎮 Você possui **${jogoInfo.nome}**`;
@@ -1446,7 +1425,6 @@ client.on('interactionCreate', async (interaction) => {
       const selectRow = generateSelectMenu(0);
       const buttonRow = generatePaginationButtons(0);
 
-      // 🔥 ENVIA A RESPOSTA
       const reply = await interaction.editReply({
         embeds: [embedResumo],
         components: [selectRow, buttonRow]
@@ -1454,18 +1432,16 @@ client.on('interactionCreate', async (interaction) => {
 
       console.log(`✅ Resposta enviada com sucesso!`);
 
-      // 🔥 COLLECTOR COM TRATAMENTO DE ERROS
       const filter = i => i.user.id === interaction.user.id;
       const collector = reply.createMessageComponentCollector({ filter, time: 180000 });
 
       collector.on('collect', async (i) => {
-        // 🔥 VERIFICA SE A INTERAÇÃO AINDA É VÁLIDA
         if (!i.isRepliable()) {
           console.log(`⚠️ [BOTÃO] Interação não pode ser respondida`);
           return;
         }
 
-        // BOTÃO DE VÍDEO
+        // 🔥 BOTÃO DE VÍDEO - CORRIGIDO
         if (i.customId.startsWith('video_')) {
           const videoData = videoLinksMap.get(i.customId);
           
@@ -1482,12 +1458,13 @@ client.on('interactionCreate', async (interaction) => {
           }
 
           try {
+            // 🔥 PRIMEIRO: RESPONDE COM "Buscando..."
             await i.reply({
               content: '🔍 Buscando vídeo guia... (máximo 5 segundos)',
               flags: MessageFlags.Ephemeral
             });
 
-            // 🔥 TIMEOUT DE 5 SEGUNDOS
+            // 🔥 DEPOIS: BUSCA O VÍDEO
             const videoPromise = buscarVideoYouTube(videoData.jogo, videoData.conquista);
             const timeoutPromise = new Promise((resolve) => {
               setTimeout(() => {
@@ -1498,31 +1475,17 @@ client.on('interactionCreate', async (interaction) => {
             
             const videoInfo = await Promise.race([videoPromise, timeoutPromise]);
             
+            // 🔥 USA FOLLOWUP EM VEZ DE EDITREPLY (evita Unknown interaction)
             if (videoInfo) {
-              try {
-                await i.editReply({
-                  content: `🎬 **Vídeo guia para "${videoData.conquista}":**\n${videoInfo.link}`,
-                  flags: MessageFlags.Ephemeral
-                });
-              } catch (e) {
-                console.log(`⚠️ Erro ao editar: ${e.message}`);
-                await i.followUp({
-                  content: `🎬 **Vídeo guia:**\n${videoInfo.link}`,
-                  flags: MessageFlags.Ephemeral
-                });
-              }
+              await i.followUp({
+                content: `🎬 **Vídeo guia para "${videoData.conquista}":**\n${videoInfo.link}`,
+                flags: MessageFlags.Ephemeral
+              });
             } else {
-              try {
-                await i.editReply({
-                  content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}" em "${videoData.jogo}".\n\n💡 Tente buscar manualmente:\n\`${videoData.conquista} ${videoData.jogo} trophy\``,
-                  flags: MessageFlags.Ephemeral
-                });
-              } catch (e) {
-                await i.followUp({
-                  content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}".`,
-                  flags: MessageFlags.Ephemeral
-                });
-              }
+              await i.followUp({
+                content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}" em "${videoData.jogo}".\n\n💡 Tente buscar manualmente:\n\`${videoData.conquista} ${videoData.jogo} trophy\``,
+                flags: MessageFlags.Ephemeral
+              });
             }
           } catch (error) {
             console.error(`❌ Erro no botão de vídeo:`, error);
@@ -1531,7 +1494,9 @@ client.on('interactionCreate', async (interaction) => {
                 content: '❌ Erro ao buscar vídeo. Tente novamente.',
                 flags: MessageFlags.Ephemeral
               });
-            } catch (e) {}
+            } catch (e) {
+              console.log(`⚠️ Não foi possível responder: ${e.message}`);
+            }
           }
           return;
         }
@@ -1696,29 +1661,15 @@ client.on('interactionCreate', async (interaction) => {
       const videoInfo = await Promise.race([videoPromise, timeoutPromise]);
       
       if (videoInfo) {
-        try {
-          await interaction.editReply({
-            content: `🎬 **Vídeo guia:**\n${videoInfo.link}`,
-            flags: MessageFlags.Ephemeral
-          });
-        } catch (e) {
-          await interaction.followUp({
-            content: `🎬 **Vídeo guia:**\n${videoInfo.link}`,
-            flags: MessageFlags.Ephemeral
-          });
-        }
+        await interaction.followUp({
+          content: `🎬 **Vídeo guia para "${videoData.conquista}":**\n${videoInfo.link}`,
+          flags: MessageFlags.Ephemeral
+        });
       } else {
-        try {
-          await interaction.editReply({
-            content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}".`,
-            flags: MessageFlags.Ephemeral
-          });
-        } catch (e) {
-          await interaction.followUp({
-            content: `❌ Nenhum vídeo encontrado.`,
-            flags: MessageFlags.Ephemeral
-          });
-        }
+        await interaction.followUp({
+          content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}".\n\n💡 Tente buscar manualmente:\n\`${videoData.conquista} ${videoData.jogo} trophy\``,
+          flags: MessageFlags.Ephemeral
+        });
       }
     } catch (error) {
       console.error(`❌ [FALLBACK] Erro:`, error);
@@ -1733,9 +1684,8 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 18. OUTROS COMANDOS E LOGIN
+// 18. OUTROS COMANDOS
 // ============================================================
-// !resetranking
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
   if (message.content.toLowerCase() !== '!resetranking') return;
@@ -1760,7 +1710,6 @@ client.on('messageCreate', async (message) => {
   });
 });
 
-// /regras
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName === 'regras') {
