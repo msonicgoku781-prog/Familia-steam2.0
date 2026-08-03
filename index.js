@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (COM ÍCONES VIA API - LOGS DETALHADOS)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (CORRIGIDO - ÍCONE COM URL COMPLETA)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -436,7 +436,7 @@ async function getAchievementDescription(appId, apiname) {
 }
 
 // ============================================================
-// 6.1 FUNÇÃO PARA OBTER URL DO ÍCONE (COM DEPURAÇÃO COMPLETA)
+// 6.1 FUNÇÃO PARA OBTER URL DO ÍCONE (CORRIGIDA - URL COMPLETA)
 // ============================================================
 async function getAchievementImageUrl(appId, apiname) {
   console.log(`🔍 ===== INICIANDO BUSCA PARA: ${apiname} (AppID: ${appId}) =====`);
@@ -450,7 +450,6 @@ async function getAchievementImageUrl(appId, apiname) {
     
     if (!data?.game?.availableGameStats?.achievements) {
       console.log(`❌ PASSO 1 FALHOU: Schema não encontrado para o jogo ${appId}`);
-      console.log(`📄 Resposta da API: ${JSON.stringify(data).substring(0, 200)}`);
       return null;
     }
     
@@ -462,33 +461,62 @@ async function getAchievementImageUrl(appId, apiname) {
     
     if (!ach) {
       console.log(`❌ PASSO 2 FALHOU: Conquista "${apiname}" não encontrada no schema`);
-      // Lista as primeiras 5 conquistas para referência
-      const primeiras = data.game.availableGameStats.achievements.slice(0, 5).map(a => a.name);
-      console.log(`📄 Primeiras conquistas: ${primeiras.join(', ')}`);
       return null;
     }
     
     console.log(`✅ PASSO 2 OK: Conquista encontrada`);
     console.log(`📦 Nome: ${ach.name}`);
     console.log(`📦 DisplayName: ${ach.displayName}`);
-    console.log(`📦 Icon: ${ach.icon}`);
-    console.log(`📦 IconGray: ${ach.icongray}`);
     
-    if (!ach.icon) {
-      console.log(`❌ PASSO 2 FALHOU: Conquista não tem ícone (campo 'icon' vazio)`);
+    // 🔥 CORREÇÃO: Verifica se o icon já é uma URL completa
+    let iconValue = ach.icon || ach.icongray;
+    
+    if (!iconValue) {
+      console.log(`❌ Conquista não tem ícone (campo 'icon' vazio)`);
       return null;
     }
     
-    const iconName = ach.icon;
-    console.log(`📦 Nome do ícone: ${iconName}`);
+    // 🔥 Se já for uma URL completa (começa com http), retorna ela mesma
+    if (iconValue.startsWith('http://') || iconValue.startsWith('https://')) {
+      console.log(`✅ Ícone já é uma URL completa: ${iconValue}`);
+      // Verifica se a URL é acessível
+      try {
+        const test = await axios.head(iconValue, { 
+          timeout: 5000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          }
+        });
+        if (test.status === 200) {
+          console.log(`✅ URL do ícone acessível: ${iconValue}`);
+          return iconValue;
+        } else {
+          console.log(`⚠️ URL do ícone retornou status ${test.status}`);
+        }
+      } catch (e) {
+        console.log(`⚠️ Erro ao testar URL do ícone: ${e.message}`);
+      }
+      
+      // Se a URL direta falhou, tenta via proxy
+      try {
+        const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(iconValue)}&w=200&h=200&fit=cover`;
+        const test = await axios.head(proxyUrl, { timeout: 5000 });
+        if (test.status === 200) {
+          console.log(`✅ Ícone via proxy: ${proxyUrl}`);
+          return proxyUrl;
+        }
+      } catch (_) {}
+      
+      // Último recurso: retorna a URL original mesmo que não testada
+      return iconValue;
+    }
     
-    // ============================================================
-    // CAMADA 1: Tenta a URL direta da Steam (CDN)
-    // ============================================================
-    console.log(`📡 CAMADA 1: Tentando CDN direta...`);
-    const baseUrl = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/${appId}/${iconName}`;
+    // 🔥 Se for apenas o nome do arquivo (sem http), constrói a URL
+    console.log(`📦 Nome do ícone (arquivo): ${iconValue}`);
+    const baseUrl = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/${appId}/${iconValue}`;
     const formatos = ['.jpg', '.png'];
     
+    // Tenta os formatos
     for (const formato of formatos) {
       const urlTeste = baseUrl + formato;
       console.log(`🔄 Testando: ${urlTeste}`);
@@ -496,66 +524,23 @@ async function getAchievementImageUrl(appId, apiname) {
         const test = await axios.head(urlTeste, { 
           timeout: 5000,
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
           }
         });
         if (test.status === 200) {
-          console.log(`✅ CAMADA 1 FUNCIONOU: ${urlTeste}`);
+          console.log(`✅ Ícone encontrado: ${urlTeste}`);
           return urlTeste;
         }
-        console.log(`⚠️ Status ${test.status} para ${formato}`);
       } catch (e) {
         console.log(`❌ Erro no teste ${formato}: ${e.message}`);
       }
     }
     
-    // ============================================================
-    // CAMADA 2: Tenta via proxy (images.weserv.nl)
-    // ============================================================
-    console.log(`📡 CAMADA 2: Tentando proxy images.weserv.nl...`);
-    for (const formato of formatos) {
-      const urlTeste = baseUrl + formato;
-      try {
-        const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(urlTeste)}&w=200&h=200&fit=cover`;
-        console.log(`🔄 Testando: ${proxyUrl}`);
-        const test = await axios.head(proxyUrl, { timeout: 5000 });
-        if (test.status === 200) {
-          console.log(`✅ CAMADA 2 FUNCIONOU: ${proxyUrl}`);
-          return proxyUrl;
-        }
-        console.log(`⚠️ Status ${test.status} para proxy ${formato}`);
-      } catch (e) {
-        console.log(`❌ Erro no proxy ${formato}: ${e.message}`);
-      }
-    }
-    
-    // ============================================================
-    // CAMADA 3: Tenta via outro proxy (cors-anywhere)
-    // ============================================================
-    console.log(`📡 CAMADA 3: Tentando CORS-Anywhere...`);
-    for (const formato of formatos) {
-      const urlTeste = baseUrl + formato;
-      try {
-        const proxyUrl = `https://cors-anywhere.herokuapp.com/${urlTeste}`;
-        console.log(`🔄 Testando: ${proxyUrl}`);
-        const test = await axios.head(proxyUrl, { timeout: 5000 });
-        if (test.status === 200) {
-          console.log(`✅ CAMADA 3 FUNCIONOU: ${proxyUrl}`);
-          return proxyUrl;
-        }
-        console.log(`⚠️ Status ${test.status} para CORS-Anywhere ${formato}`);
-      } catch (e) {
-        console.log(`❌ Erro no CORS-Anywhere ${formato}: ${e.message}`);
-      }
-    }
-    
-    console.log(`❌ TODAS AS CAMADAS FALHARAM para ${apiname}`);
+    console.log(`❌ Nenhum formato funcionou para ${apiname}`);
     return null;
     
   } catch (e) {
     console.log(`❌ ERRO CRÍTICO em getAchievementImageUrl:`, e.message);
-    console.log(`📄 Stack:`, e.stack);
     return null;
   }
 }
@@ -1425,7 +1410,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM LOGS DETALHADOS E 3 CAMADAS DE FALLBACK)
+  // 🔥 COMANDO /conquista (CORRIGIDO - URL COMPLETA DO ÍCONE)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1539,7 +1524,7 @@ client.on('interactionCreate', async (interaction) => {
     totalConquistas = conquistasList.length;
 
     // ============================================================
-    // FUNÇÃO GERAR EMBED DA CONQUISTA (COM LOGS E 3 CAMADAS DE FALLBACK)
+    // FUNÇÃO GERAR EMBED DA CONQUISTA (CORRIGIDA - URL COMPLETA)
     // ============================================================
     async function generateAchievementEmbed(ach) {
       // Prioridade: campo "video" do JSON (forçando HTTPS)
@@ -1581,7 +1566,7 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       // ============================================================
-      // 🔥 BUSCA A IMAGEM DO ÍCONE COM LOGS DETALHADOS
+      // 🔥 BUSCA A IMAGEM DO ÍCONE (CORRIGIDO - URL COMPLETA)
       // ============================================================
       console.log(`🖼️ GERANDO EMBED PARA: ${ach.name}`);
       let imageUrl = ach.iconUrl || null;
@@ -1591,8 +1576,9 @@ client.on('interactionCreate', async (interaction) => {
       } else {
         console.log(`🔄 Buscando ícone via Steam API para: ${ach.name} (AppID: ${appid})`);
         try {
-          imageUrl = await getAchievementImageUrl(appid, ach.name);
-          if (imageUrl) {
+          const iconData = await getAchievementImageUrl(appid, ach.name);
+          if (iconData) {
+            imageUrl = iconData;
             console.log(`✅ Ícone encontrado via API: ${imageUrl}`);
           } else {
             console.log(`❌ API não retornou ícone para: ${ach.name}`);
@@ -1609,8 +1595,8 @@ client.on('interactionCreate', async (interaction) => {
         console.log(`📦 Capa: ${imageUrl}`);
       }
 
-      // FALLBACK 2: Verifica se a imagem é acessível
-      if (imageUrl) {
+      // FALLBACK 2: Verifica se a imagem é acessível (apenas para URLs que não são da Steam CDN)
+      if (imageUrl && !imageUrl.includes('cdn.steamstatic.com')) {
         try {
           console.log(`🔄 Testando imagem: ${imageUrl}`);
           const test = await axios.head(imageUrl, { timeout: 3000 });
@@ -1754,17 +1740,20 @@ client.on('interactionCreate', async (interaction) => {
             components: components
           });
 
+          // 🔥 CORREÇÃO: Usa flags em vez de ephemeral
           await i.update({
             content: `✅ **Detalhes da conquista "${ach.displayName}" enviados na sua DM!** ${videoLink ? 'Clique no botão para assistir ao vídeo.' : ''}`,
             embeds: [],
-            components: [backButton]
+            components: [backButton],
+            flags: 64 // Ephemeral
           });
         } catch (err) {
           console.error('Erro ao enviar DM:', err);
           await i.update({
             content: `❌ **Não foi possível enviar a DM.** Verifique se você permite mensagens de servidores.`,
             embeds: [],
-            components: [backButton]
+            components: [backButton],
+            flags: 64 // Ephemeral
           });
         }
         return;
