@@ -1103,9 +1103,6 @@ client.once('clientReady', async () => {
     setInterval(verificarPromocoesQuero, 5 * 60 * 1000);
     console.log('🔄 Monitorando conquistas a cada 30s, novos jogos a cada 5min.');
 
-    // 🔥 REMOVIDO: mensagem de boas-vindas para o dono
-    // Não envia mais mensagem no privado
-
   } catch (err) {
     console.error('❌ ERRO FATAL NO EVENTO clientReady:', err);
     console.error('❌ Stack:', err.stack);
@@ -1355,14 +1352,16 @@ client.on('interactionCreate', async (interaction) => {
       try {
         const playerAch = await getPlayerAchievements(steamId, appid);
         desbloqueadas = playerAch.filter(c => c.achieved === 1).map(c => c.apiname);
-        console.log(`✅ ${desbloqueadas.length} conquistas já desbloqueadas para ${jogoInfo.nome}`);
+        console.log(`✅ ${desbloqueadas.length} conquistas já desbloqueadas para ${jogoInfo.nome} (appid: ${appid})`);
+        console.log(`📋 Conquistas desbloqueadas: ${desbloqueadas.join(', ')}`);
       } catch (e) {
         console.warn(`⚠️ Erro ao buscar conquistas desbloqueadas: ${e.message}`);
         desbloqueadas = [];
       }
 
       // 🔥 FILTRA O JSON: remove as conquistas que já estão desbloqueadas (pelo nome)
-      conquistasList = Object.keys(conquestMappings)
+      const todasConquistas = Object.keys(conquestMappings);
+      conquistasList = todasConquistas
         .filter(nome => !desbloqueadas.includes(nome)) // Só as que NÃO estão na lista de desbloqueadas
         .map(nome => ({
           name: nome,
@@ -1374,6 +1373,7 @@ client.on('interactionCreate', async (interaction) => {
       conquistasList.sort((a, b) => a.name.localeCompare(b.name));
       
       console.log(`📋 ${conquistasList.length} conquistas faltantes para Mega Man X`);
+      console.log(`📋 Total de conquistas no JSON: ${todasConquistas.length}`);
     } else {
       // Para outros jogos: usa a Steam
       const ownedGames = await getOwnedGames(steamId);
