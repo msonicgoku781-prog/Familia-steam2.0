@@ -436,14 +436,12 @@ async function getAchievementDescription(appId, apiname) {
 }
 
 // ============================================================
-// 6.1 FUNÇÃO PARA OBTER URL DO ÍCONE (CORRIGIDA - URL COMPLETA)
+// 6.1 FUNÇÃO PARA OBTER URL DO ÍCONE
 // ============================================================
 async function getAchievementImageUrl(appId, apiname) {
   console.log(`🔍 ===== INICIANDO BUSCA PARA: ${apiname} (AppID: ${appId}) =====`);
   
   try {
-    // PASSO 1: Busca o schema do jogo
-    console.log(`📡 PASSO 1: Buscando schema do jogo ${appId}...`);
     const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
     const params = { key: STEAM_KEY, appid: appId, l: 'portuguese' };
     const data = await fetchSteam(url, params, 2);
@@ -455,8 +453,6 @@ async function getAchievementImageUrl(appId, apiname) {
     
     console.log(`✅ PASSO 1 OK: Schema encontrado com ${data.game.availableGameStats.achievements.length} conquistas`);
     
-    // PASSO 2: Encontrar a conquista específica
-    console.log(`📡 PASSO 2: Procurando conquista "${apiname}"...`);
     const ach = data.game.availableGameStats.achievements.find(a => a.name === apiname);
     
     if (!ach) {
@@ -468,7 +464,6 @@ async function getAchievementImageUrl(appId, apiname) {
     console.log(`📦 Nome: ${ach.name}`);
     console.log(`📦 DisplayName: ${ach.displayName}`);
     
-    // 🔥 CORREÇÃO: Verifica se o icon já é uma URL completa
     let iconValue = ach.icon || ach.icongray;
     
     if (!iconValue) {
@@ -476,10 +471,8 @@ async function getAchievementImageUrl(appId, apiname) {
       return null;
     }
     
-    // 🔥 Se já for uma URL completa (começa com http), retorna ela mesma
     if (iconValue.startsWith('http://') || iconValue.startsWith('https://')) {
       console.log(`✅ Ícone já é uma URL completa: ${iconValue}`);
-      // Verifica se a URL é acessível
       try {
         const test = await axios.head(iconValue, { 
           timeout: 5000,
@@ -497,7 +490,6 @@ async function getAchievementImageUrl(appId, apiname) {
         console.log(`⚠️ Erro ao testar URL do ícone: ${e.message}`);
       }
       
-      // Se a URL direta falhou, tenta via proxy
       try {
         const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(iconValue)}&w=200&h=200&fit=cover`;
         const test = await axios.head(proxyUrl, { timeout: 5000 });
@@ -507,16 +499,13 @@ async function getAchievementImageUrl(appId, apiname) {
         }
       } catch (_) {}
       
-      // Último recurso: retorna a URL original mesmo que não testada
       return iconValue;
     }
     
-    // 🔥 Se for apenas o nome do arquivo (sem http), constrói a URL
     console.log(`📦 Nome do ícone (arquivo): ${iconValue}`);
     const baseUrl = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/${appId}/${iconValue}`;
     const formatos = ['.jpg', '.png'];
     
-    // Tenta os formatos
     for (const formato of formatos) {
       const urlTeste = baseUrl + formato;
       console.log(`🔄 Testando: ${urlTeste}`);
@@ -546,14 +535,13 @@ async function getAchievementImageUrl(appId, apiname) {
 }
 
 // ============================================================
-// 6.2 FUNÇÃO DE TRADUÇÃO (MyMemory API) - COM VALIDAÇÃO
+// 6.2 FUNÇÃO DE TRADUÇÃO (MyMemory API)
 // ============================================================
 const translationCache = new Map();
 
 async function traduzirTexto(texto, targetLang = 'pt') {
   if (!texto || texto.length < 3) return texto;
   
-  // Verifica se já tem caracteres acentuados (provavelmente já está em português)
   const palavras = texto.split(' ');
   let acentos = 0;
   for (const palavra of palavras) {
@@ -740,7 +728,7 @@ async function enviarRegras() {
       '`/quero-remover [jogo]` – Remove um jogo da sua lista /quero.\n' +
       '`/dbstatus` – Status do banco de dados (apenas dono).\n' +
       '`/regras` – Exibe esta mensagem novamente.\n' +
-      '`/conquista jogo:"nome"` – Mostra as conquistas faltantes de um jogo.\n\n' +
+      '`/conquista jogo:"nome"` – Mostra todas as conquistas de um jogo (mesmo se você não tiver).\n\n' +
       '**🔔 NOTIFICAÇÕES**\n' +
       '• 🆕 Novos jogos compatíveis são anunciados com `@everyone`.\n' +
       '• 🏆 Conquistas são monitoradas e notificadas no canal de conquistas.\n' +
@@ -1181,11 +1169,11 @@ client.once('clientReady', async () => {
         { name: 'regras', description: 'Mostra as regras e comandos do servidor' },
         {
           name: 'conquista',
-          description: 'Mostra as conquistas faltantes de um jogo',
+          description: 'Mostra todas as conquistas de um jogo (mesmo se você não tiver)',
           options: [
             {
               name: 'jogo',
-              description: 'Nome do jogo para buscar conquistas faltantes',
+              description: 'Nome do jogo para buscar conquistas',
               type: 3,
               required: true
             }
@@ -1205,12 +1193,11 @@ client.once('clientReady', async () => {
     setInterval(verificarPromocoesQuero, 5 * 60 * 1000);
     console.log('🔄 Monitorando conquistas a cada 30s, novos jogos a cada 5min.');
 
-    // 🔥 CORREÇÃO: Só envia a mensagem UMA VEZ
     if (!botIniciado) {
       botIniciado = true;
       try {
         const dono = await client.users.fetch(DONO_ID);
-        await dono.send('🚀 Bot Steam Família está online! Comando /conquista (por jogo) adicionado.');
+        await dono.send('🚀 Bot Steam Família está online! Comando /conquista agora mostra TODAS as conquistas, mesmo se você não tiver o jogo.');
         console.log('✅ Mensagem de inicialização enviada ao dono.');
       } catch (err) {
         console.log('⚠️ Não foi possível enviar mensagem ao dono:', err.message);
@@ -1421,26 +1408,13 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (CORRIGIDO - NÃO REPETE CONQUISTAS)
+  // 🔥 COMANDO /conquista - MOSTRA TODAS AS CONQUISTAS (MESMO SEM TER O JOGO)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
     const nomeJogoInput = interaction.options.getString('jogo').trim();
 
-    // 1. Identificar o Steam ID do usuário
-    let steamId = null;
-    for (const [sid, m] of Object.entries(MEMBROS)) {
-      if (m.discordId === interaction.user.id) {
-        steamId = sid;
-        break;
-      }
-    }
-    if (!steamId) {
-      await interaction.editReply('❌ Você não está mapeado como membro da família. Peça ao dono para adicionar seu Steam ID.');
-      return;
-    }
-
-    // 2. Buscar o jogo na Steam pelo nome
+    // 1. Buscar o jogo na Steam
     const jogoInfo = await searchGameOnSteam(nomeJogoInput);
     if (!jogoInfo) {
       await interaction.editReply(`❌ Não encontrei o jogo **${nomeJogoInput}** na Steam.`);
@@ -1448,230 +1422,171 @@ client.on('interactionCreate', async (interaction) => {
     }
     const appid = jogoInfo.appid;
 
-    // 3. Verifica se é o Mega Man X Legacy Collection (appid 743890)
-    // 🔥 CORREÇÃO: Verifica APENAS o appid, não o nome
-    const isMegaManX = (appid === 743890);
-
-    // Variável para armazenar a lista de conquistas (faltantes) e a página atual
-    let conquistasList = [];
-    let totalConquistas = 0;
-
-    // ============================================================
-    // OBTÉM A LISTA DE CONQUISTAS (MEGA MAN X JSON OU STEAM)
-    // ============================================================
-    if (isMegaManX && conquestMappings) {
-      console.log(`🎮 Mega Man X detectado! Usando JSON personalizado.`);
-      // Busca conquistas já desbloqueadas (via Steam)
-      let desbloqueadas = [];
-      try {
-        const playerAch = await getPlayerAchievements(steamId, appid);
-        desbloqueadas = playerAch.filter(c => c.achieved === 1).map(c => c.apiname);
-        console.log(`📊 Mega Man X: ${desbloqueadas.length} conquistas já desbloqueadas`);
-      } catch (e) {
-        console.warn(`⚠️ Erro ao buscar conquistas desbloqueadas do Mega Man X: ${e.message}`);
-        desbloqueadas = [];
+    // 2. Identificar o Steam ID do usuário
+    let userSteamId = null;
+    for (const [sid, m] of Object.entries(MEMBROS)) {
+      if (m.discordId === interaction.user.id) {
+        userSteamId = sid;
+        break;
       }
-
-      // Filtra o JSON
-      conquistasList = Object.keys(conquestMappings)
-        .filter(nome => !desbloqueadas.includes(nome))
-        .map(nome => ({
-          name: nome,
-          displayName: nome,
-          description: conquestMappings[nome].description || 'Sem descrição disponível',
-          iconUrl: conquestMappings[nome].image || null,
-          video: conquestMappings[nome].video || null
-        }));
-      conquistasList.sort((a, b) => a.name.localeCompare(b.name));
-      
-      console.log(`📊 Mega Man X: ${conquistasList.length} conquistas faltantes`);
-    } else {
-      // Para outros jogos: usa a Steam
-      console.log(`🎮 Usando Steam API para: ${jogoInfo.nome} (AppID: ${appid})`);
-      const ownedGames = await getOwnedGames(steamId);
-      const possui = ownedGames.some(g => g.appid === appid);
-      if (!possui) {
-        await interaction.editReply(`❌ Você **não possui** **${jogoInfo.nome}** na sua biblioteca.`);
-        return;
-      }
-
-      let schemaData;
-      try {
-        const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
-        const params = { key: STEAM_KEY, appid: appid, l: 'portuguese' };
-        schemaData = await fetchSteam(url, params, 2);
-      } catch (e) {
-        await interaction.editReply(`❌ Erro ao buscar conquistas do jogo. Tente novamente.`);
-        return;
-      }
-      if (!schemaData?.game?.availableGameStats?.achievements) {
-        await interaction.editReply(`❌ O jogo **${jogoInfo.nome}** não possui conquistas.`);
-        return;
-      }
-      const conquistasSchema = schemaData.game.availableGameStats.achievements;
-
-      let desbloqueadas = [];
-      try {
-        const playerAch = await getPlayerAchievements(steamId, appid);
-        desbloqueadas = playerAch.filter(c => c.achieved === 1).map(c => c.apiname);
-      } catch (e) {
-        desbloqueadas = [];
-      }
-
-      conquistasList = conquistasSchema
-        .filter(ach => !desbloqueadas.includes(ach.name))
-        .map(ach => ({
-          name: ach.name,
-          displayName: ach.displayName || ach.name,
-          description: ach.description || 'Sem descrição disponível',
-          iconUrl: null,
-          video: null
-        }));
-      conquistasList.sort((a, b) => a.displayName.localeCompare(b.displayName));
     }
-
-    // ============================================================
-    // VERIFICA SE HÁ CONQUISTAS FALTANTES
-    // ============================================================
-    if (conquistasList.length === 0) {
-      await interaction.editReply(`🎉 Você já desbloqueou **todas** as conquistas de **${jogoInfo.nome}**!`);
+    
+    if (!userSteamId) {
+      await interaction.editReply('❌ Você não está mapeado como membro da família. Peça ao dono para adicionar seu Steam ID.');
       return;
     }
 
-    totalConquistas = conquistasList.length;
-
-    // ============================================================
-    // FUNÇÃO GERAR EMBED DA CONQUISTA (COM TRADUÇÃO FORÇADA)
-    // ============================================================
-    async function generateAchievementEmbed(ach) {
-      // Prioridade: campo "video" do JSON (forçando HTTPS)
-      let videoLink = ach.video ? ach.video.replace(/^http:/, 'https:') : null;
-
-      // Se não tiver vídeo no JSON e tiver chave da API, tenta buscar automaticamente (fallback)
-      if (!videoLink && YOUTUBE_API_KEY) {
-        try {
-          const searchQuery = `${jogoInfo.nome} ${encodeURIComponent(ach.displayName)}`;
-          const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
-            params: {
-              part: 'snippet',
-              type: 'video',
-              maxResults: 1,
-              q: searchQuery,
-              key: YOUTUBE_API_KEY
-            },
-            timeout: 5000
+    // 3. Verificar se o jogo está na família
+    let jogoNaFamilia = false;
+    let donosDoJogo = [];
+    
+    for (const [sid, jogos] of Object.entries(db.historicoJogos || {})) {
+      if (jogos.includes(appid)) {
+        jogoNaFamilia = true;
+        const member = MEMBROS[sid];
+        if (member) {
+          donosDoJogo.push({
+            nome: member.nome,
+            discordId: member.discordId,
+            steamId: sid
           });
-          const videoId = response.data.items?.[0]?.id?.videoId;
-          if (videoId) {
-            videoLink = `https://www.youtube.com/watch?v=${videoId}`;
-          }
-        } catch (e) {
-          console.error('Erro ao buscar vídeo no YouTube:', e.message);
         }
       }
+    }
 
-      // Fallback: link da Steam
-      const url = videoLink || `https://store.steampowered.com/app/${appid}`;
+    if (!jogoNaFamilia) {
+      for (const sid of STEAM_IDS_ARRAY) {
+        try {
+          const ownedGames = await getOwnedGames(sid);
+          if (ownedGames.some(g => g.appid === appid)) {
+            jogoNaFamilia = true;
+            const member = MEMBROS[sid];
+            if (member) {
+              donosDoJogo.push({
+                nome: member.nome,
+                discordId: member.discordId,
+                steamId: sid
+              });
+            }
+          }
+        } catch (_) {}
+      }
+    }
 
-      // ============================================================
-      // 🔥 TRADUÇÃO FORÇADA DA DESCRIÇÃO PARA PORTUGUÊS
-      // ============================================================
-      let descricao = ach.description || 'Sem descrição disponível';
+    if (!jogoNaFamilia) {
+      await interaction.editReply(`❌ Nenhum membro da família possui **${jogoInfo.nome}**.`);
+      return;
+    }
+
+    // 4. Verificar compatibilidade
+    const compat = await verificarCompatibilidadeFamilia(appid);
+    if (!compat.compatível) {
+      await interaction.editReply(`⚠️ **${jogoInfo.nome}** não é compatível com Family Sharing.\nMotivo: ${compat.motivo}`);
+      return;
+    }
+
+    // 5. Buscar schema de conquistas do jogo
+    let schemaData;
+    try {
+      const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
+      const params = { key: STEAM_KEY, appid: appid, l: 'portuguese' };
+      schemaData = await fetchSteam(url, params, 2);
+    } catch (e) {
+      await interaction.editReply(`❌ Erro ao buscar conquistas do jogo. Tente novamente.`);
+      return;
+    }
+
+    if (!schemaData?.game?.availableGameStats?.achievements) {
+      await interaction.editReply(`❌ O jogo **${jogoInfo.nome}** não possui conquistas.`);
+      return;
+    }
+
+    const conquistasSchema = schemaData.game.availableGameStats.achievements;
+
+    // 6. Buscar conquistas do usuário (pode estar vazio se nunca jogou)
+    let conquistasUsuario = [];
+    try {
+      const playerAch = await getPlayerAchievements(userSteamId, appid);
+      if (playerAch && Array.isArray(playerAch)) {
+        conquistasUsuario = playerAch.filter(c => c.achieved === 1).map(c => c.apiname);
+      }
+    } catch (e) {
+      console.log(`ℹ️ Usuário não tem conquistas para ${jogoInfo.nome} (pode nunca ter jogado)`);
+      conquistasUsuario = [];
+    }
+
+    // 7. Montar lista de conquistas
+    let conquistasList = conquistasSchema.map(ach => {
+      const nome = ach.name;
+      const desbloqueada = conquistasUsuario.includes(nome);
       
-      // Se for "Sem descrição disponível" ou vazio, não tenta traduzir
-      if (descricao === 'Sem descrição disponível' || descricao === 'Sem descrição' || descricao.trim() === '') {
-        descricao = '📝 Descrição não disponível para esta conquista.';
-      } else {
-        // Verifica se a descrição já está em português (tem caracteres acentuados)
+      return {
+        name: nome,
+        displayName: ach.displayName || nome,
+        description: ach.description || 'Sem descrição disponível',
+        icon: ach.icon || null,
+        icongray: ach.icongray || null,
+        desbloqueada: desbloqueada,
+        status: desbloqueada ? '✅ Desbloqueada' : '🔒 Não desbloqueada'
+      };
+    });
+
+    conquistasList.sort((a, b) => {
+      if (a.desbloqueada === b.desbloqueada) return a.displayName.localeCompare(b.displayName);
+      return a.desbloqueada ? 1 : -1;
+    });
+
+    const totalConquistas = conquistasList.length;
+    const conquistasDesbloqueadas = conquistasList.filter(c => c.desbloqueada).length;
+    const conquistasFaltantes = totalConquistas - conquistasDesbloqueadas;
+
+    const usuarioTemJogo = donosDoJogo.some(d => d.steamId === userSteamId);
+    const nomesDonos = donosDoJogo.map(d => d.nome).join(', ');
+
+    // 8. Gerar embed da conquista
+    async function generateAchievementEmbed(ach, index) {
+      let imageUrl = ach.icon;
+      if (imageUrl && !imageUrl.startsWith('http')) {
+        imageUrl = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/${appid}/${imageUrl}`;
+      }
+      
+      if (!imageUrl || imageUrl.includes('null')) {
+        imageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
+      }
+
+      let descricao = ach.description || 'Sem descrição disponível';
+      if (descricao !== 'Sem descrição disponível' && descricao.length > 3) {
         const temAcento = /[áàâãéêíóôõúç]/i.test(descricao);
-        
-        if (!temAcento && descricao.length > 3) {
-          console.log(`🔄 Traduzindo descrição: "${descricao.substring(0, 50)}..."`);
+        if (!temAcento) {
           try {
             const traducao = await traduzirTexto(descricao);
-            if (traducao && !traducao.includes('INVALID') && !traducao.includes('ERROR')) {
+            if (traducao && !traducao.includes('INVALID')) {
               descricao = traducao;
-              console.log(`✅ Tradução concluída: "${descricao.substring(0, 50)}..."`);
-            } else {
-              console.log(`⚠️ Tradução falhou, mantendo original`);
             }
-          } catch (e) {
-            console.log(`❌ Erro ao traduzir: ${e.message}`);
-          }
-        } else {
-          console.log(`ℹ️ Descrição já parece estar em português ou é muito curta: "${descricao.substring(0, 30)}..."`);
+          } catch (_) {}
         }
       }
-
-      // ============================================================
-      // 🔥 BUSCA A IMAGEM DO ÍCONE
-      // ============================================================
-      console.log(`🖼️ GERANDO EMBED PARA: ${ach.name}`);
-      let imageUrl = ach.iconUrl || null;
-      
-      if (imageUrl) {
-        console.log(`✅ Usando imagem do JSON: ${imageUrl}`);
-      } else {
-        console.log(`🔄 Buscando ícone via Steam API para: ${ach.name} (AppID: ${appid})`);
-        try {
-          const iconData = await getAchievementImageUrl(appid, ach.name);
-          if (iconData) {
-            imageUrl = iconData;
-            console.log(`✅ Ícone encontrado via API: ${imageUrl}`);
-          } else {
-            console.log(`❌ API não retornou ícone para: ${ach.name}`);
-          }
-        } catch (e) {
-          console.log(`❌ Erro ao buscar imagem via API: ${e.message}`);
-        }
-      }
-
-      // FALLBACK 1: Capa do jogo
-      if (!imageUrl) {
-        console.log(`🔄 Usando capa do jogo como fallback para: ${ach.name}`);
-        imageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
-        console.log(`📦 Capa: ${imageUrl}`);
-      }
-
-      // FALLBACK 2: Verifica se a imagem é acessível
-      if (imageUrl && !imageUrl.includes('cdn.steamstatic.com')) {
-        try {
-          console.log(`🔄 Testando imagem: ${imageUrl}`);
-          const test = await axios.head(imageUrl, { timeout: 3000 });
-          if (test.status !== 200) {
-            console.log(`⚠️ Imagem inacessível (status ${test.status}), usando fallback genérico`);
-            imageUrl = 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png';
-          } else {
-            console.log(`✅ Imagem acessível: ${imageUrl}`);
-          }
-        } catch (_) {
-          console.log(`⚠️ Erro ao testar imagem, usando fallback genérico`);
-          imageUrl = 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png';
-        }
-      }
-
-      console.log(`📦 URL FINAL da imagem para ${ach.name}: ${imageUrl}`);
 
       const embed = new EmbedBuilder()
-        .setColor(0xFFD700)
+        .setColor(ach.desbloqueada ? 0x00FF00 : 0xFF4444)
         .setTitle(`🏆 ${ach.displayName}`)
-        .setURL(url)
         .setDescription(descricao)
         .addFields(
           { name: '🎮 Jogo', value: jogoInfo.nome, inline: true },
-          { name: '📊 Progresso', value: `${conquistasList.indexOf(ach) + 1}/${totalConquistas} conquistas faltantes`, inline: true }
+          { name: '📊 Status', value: ach.status, inline: true },
+          { name: '📈 Progresso', value: `${index + 1}/${totalConquistas}`, inline: true }
         )
         .setThumbnail(imageUrl)
-        .setFooter({ text: `Selecione outra conquista no menu abaixo` })
+        .setFooter({ 
+          text: `🎯 ${conquistasDesbloqueadas}/${totalConquistas} desbloqueadas • Faltam ${conquistasFaltantes}` 
+        })
         .setTimestamp();
 
-      return { embed, videoLink };
+      return embed;
     }
 
-    // ============================================================
-    // FUNÇÕES PARA GERAR O MENU E AS EMBEDS
-    // ============================================================
-    const ITEMS_PER_PAGE = 25;
+    // 9. Configurar paginação
+    const ITEMS_PER_PAGE = 10;
     let currentPage = 0;
 
     function generateSelectMenu(page) {
@@ -1679,21 +1594,23 @@ client.on('interactionCreate', async (interaction) => {
       const end = Math.min(start + ITEMS_PER_PAGE, totalConquistas);
       const pageItems = conquistasList.slice(start, end);
 
-      const selectMenu = new ActionRowBuilder()
+      return new ActionRowBuilder()
         .addComponents(
           new StringSelectMenuBuilder()
-            .setCustomId('achievement_select')
+            .setCustomId('conquista_select')
             .setPlaceholder(`Escolha uma conquista (${page + 1}/${Math.ceil(totalConquistas / ITEMS_PER_PAGE)})`)
             .addOptions(
-              pageItems.map((ach, index) => ({
-                label: ach.displayName.length > 100 ? ach.displayName.substring(0, 97) + '...' : ach.displayName,
-                description: ach.description ? ach.description.substring(0, 100) : 'Sem descrição',
-                value: String(start + index),
-              }))
+              pageItems.map((ach, idx) => {
+                const emoji = ach.desbloqueada ? '✅' : '🔒';
+                const label = `${emoji} ${ach.displayName}`;
+                return {
+                  label: label.length > 100 ? label.substring(0, 97) + '...' : label,
+                  description: ach.description ? ach.description.substring(0, 100) : 'Sem descrição',
+                  value: String(start + idx),
+                };
+              })
             )
         );
-
-      return selectMenu;
     }
 
     function generatePaginationButtons(page) {
@@ -1701,138 +1618,163 @@ client.on('interactionCreate', async (interaction) => {
       return new ActionRowBuilder()
         .addComponents(
           new ButtonBuilder()
-            .setCustomId('prev_page')
-            .setLabel('◀️ Página anterior')
+            .setCustomId('prev_page_conq')
+            .setLabel('◀️ Anterior')
             .setStyle(ButtonStyle.Primary)
             .setDisabled(page === 0),
           new ButtonBuilder()
-            .setCustomId('next_page')
-            .setLabel('Próxima página ▶️')
+            .setCustomId('next_page_conq')
+            .setLabel('Próxima ▶️')
             .setStyle(ButtonStyle.Primary)
             .setDisabled(page === totalPages - 1)
         );
     }
 
-    // ============================================================
-    // ENVIA O MENU INICIAL
-    // ============================================================
-    const initialEmbed = new EmbedBuilder()
+    // 10. Montar mensagem inicial
+    let mensagemAcesso = '';
+    if (usuarioTemJogo) {
+      mensagemAcesso = `🎮 Você possui **${jogoInfo.nome}**`;
+    } else {
+      mensagemAcesso = `🎮 **${jogoInfo.nome}** está disponível via Family Sharing (dono: ${nomesDonos})`;
+    }
+
+    let descricaoResumo = `${mensagemAcesso}\n\n`;
+    
+    if (conquistasDesbloqueadas === 0 && conquistasUsuario.length === 0) {
+      descricaoResumo += `**📊 Todas as Conquistas do Jogo**\n\n`;
+      descricaoResumo += `🔒 **Não desbloqueadas:** ${totalConquistas}/${totalConquistas}\n`;
+      descricaoResumo += `📊 **Progresso:** 0%\n\n`;
+      descricaoResumo += `📌 **Legenda:**\n`;
+      descricaoResumo += `🔒 Conquista não desbloqueada\n\n`;
+      descricaoResumo += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
+    } else {
+      descricaoResumo += `**📊 Suas Conquistas**\n\n`;
+      descricaoResumo += `✅ **Desbloqueadas:** ${conquistasDesbloqueadas}/${totalConquistas}\n`;
+      descricaoResumo += `🔒 **Faltantes:** ${conquistasFaltantes}/${totalConquistas}\n`;
+      descricaoResumo += `📊 **Progresso:** ${Math.round((conquistasDesbloqueadas/totalConquistas)*100)}%\n\n`;
+      descricaoResumo += `📌 **Legenda:**\n`;
+      descricaoResumo += `✅ Conquista desbloqueada\n`;
+      descricaoResumo += `🔒 Conquista não desbloqueada\n\n`;
+      descricaoResumo += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
+    }
+
+    const embedResumo = new EmbedBuilder()
       .setColor(0x00AE86)
-      .setTitle(`📋 Conquistas faltantes de ${jogoInfo.nome}`)
-      .setDescription(`Selecione uma conquista no menu abaixo para ver os detalhes.\nTotal: **${totalConquistas}** conquistas faltantes.`)
-      .setFooter({ text: `Página 1 de ${Math.ceil(totalConquistas / ITEMS_PER_PAGE)}` })
+      .setTitle(`🎮 ${jogoInfo.nome}`)
+      .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
+      .setDescription(descricaoResumo)
+      .setFooter({ text: `Total: ${totalConquistas} conquistas • Página 1/${Math.ceil(totalConquistas/ITEMS_PER_PAGE)}` })
       .setTimestamp();
 
     const selectRow = generateSelectMenu(0);
     const buttonRow = generatePaginationButtons(0);
 
     const reply = await interaction.editReply({
-      embeds: [initialEmbed],
+      embeds: [embedResumo],
       components: [selectRow, buttonRow]
     });
 
-    // ============================================================
-    // COLLECTOR PARA INTERAÇÕES (SELECT MENU E BOTÕES)
-    // ============================================================
+    // 11. Collector para interações
     const filter = i => i.user.id === interaction.user.id;
-    const collector = interaction.channel.createMessageComponentCollector({ filter, time: 120000 });
+    const collector = interaction.channel.createMessageComponentCollector({ filter, time: 180000 });
 
     collector.on('collect', async (i) => {
-      // Caso 1: Seleção de uma conquista
-      if (i.customId === 'achievement_select') {
+      if (i.customId === 'conquista_select') {
         const selectedIndex = parseInt(i.values[0]);
         const ach = conquistasList[selectedIndex];
+        const embed = await generateAchievementEmbed(ach, selectedIndex);
 
-        // Gerar embed com ícone
-        const { embed, videoLink } = await generateAchievementEmbed(ach);
-
-        // Botão para voltar à lista
         const backButton = new ActionRowBuilder()
           .addComponents(
             new ButtonBuilder()
-              .setCustomId('back_to_list')
+              .setCustomId('back_to_list_conq')
               .setLabel('🔙 Voltar à lista')
               .setStyle(ButtonStyle.Secondary)
           );
 
-        try {
-          const user = await client.users.fetch(i.user.id);
-
-          // Cria os componentes (backButton + videoButton, se houver)
-          const components = [backButton];
-
-          if (videoLink) {
-            const videoButton = new ActionRowBuilder()
-              .addComponents(
-                new ButtonBuilder()
-                  .setCustomId(`video_${i.user.id}_${ach.name.slice(0, 20)}`)
-                  .setLabel('🎬 Ver vídeo guia')
-                  .setStyle(ButtonStyle.Primary)
-              );
-            components.push(videoButton);
-            videoLinksMap.set(`video_${i.user.id}_${ach.name.slice(0, 20)}`, videoLink);
-          }
-
-          await user.send({
-            embeds: [embed],
-            components: components
-          });
-
-          await i.update({
-            content: `✅ **Detalhes da conquista "${ach.displayName}" enviados na sua DM!** ${videoLink ? 'Clique no botão para assistir ao vídeo.' : ''}`,
-            embeds: [],
-            components: [backButton],
-            flags: 64
-          });
-        } catch (err) {
-          console.error('Erro ao enviar DM:', err);
-          await i.update({
-            content: `❌ **Não foi possível enviar a DM.** Verifique se você permite mensagens de servidores.`,
-            embeds: [],
-            components: [backButton],
-            flags: 64
-          });
-        }
+        await i.update({
+          embeds: [embed],
+          components: [backButton]
+        });
         return;
       }
 
-      // Caso 2: Botão "Voltar à lista"
-      if (i.customId === 'back_to_list') {
+      if (i.customId === 'back_to_list_conq') {
+        let descricaoAtualizada = `${mensagemAcesso}\n\n`;
+        
+        if (conquistasDesbloqueadas === 0 && conquistasUsuario.length === 0) {
+          descricaoAtualizada += `**📊 Todas as Conquistas do Jogo**\n\n`;
+          descricaoAtualizada += `🔒 **Não desbloqueadas:** ${totalConquistas}/${totalConquistas}\n`;
+          descricaoAtualizada += `📊 **Progresso:** 0%\n\n`;
+          descricaoAtualizada += `📌 **Legenda:**\n`;
+          descricaoAtualizada += `🔒 Conquista não desbloqueada\n\n`;
+          descricaoAtualizada += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
+        } else {
+          descricaoAtualizada += `**📊 Suas Conquistas**\n\n`;
+          descricaoAtualizada += `✅ **Desbloqueadas:** ${conquistasDesbloqueadas}/${totalConquistas}\n`;
+          descricaoAtualizada += `🔒 **Faltantes:** ${conquistasFaltantes}/${totalConquistas}\n`;
+          descricaoAtualizada += `📊 **Progresso:** ${Math.round((conquistasDesbloqueadas/totalConquistas)*100)}%\n\n`;
+          descricaoAtualizada += `📌 **Legenda:**\n`;
+          descricaoAtualizada += `✅ Conquista desbloqueada\n`;
+          descricaoAtualizada += `🔒 Conquista não desbloqueada\n\n`;
+          descricaoAtualizada += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
+        }
+
         const embed = new EmbedBuilder()
           .setColor(0x00AE86)
-          .setTitle(`📋 Conquistas faltantes de ${jogoInfo.nome}`)
-          .setDescription(`Selecione uma conquista no menu abaixo para ver os detalhes.\nTotal: **${totalConquistas}** conquistas faltantes.`)
-          .setFooter({ text: `Página ${currentPage + 1} de ${Math.ceil(totalConquistas / ITEMS_PER_PAGE)}` })
+          .setTitle(`🎮 ${jogoInfo.nome}`)
+          .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
+          .setDescription(descricaoAtualizada)
+          .setFooter({ text: `Total: ${totalConquistas} conquistas • Página ${currentPage+1}/${Math.ceil(totalConquistas/ITEMS_PER_PAGE)}` })
           .setTimestamp();
 
         const selectRow = generateSelectMenu(currentPage);
         const buttonRow = generatePaginationButtons(currentPage);
 
         await i.update({
-          content: null,
           embeds: [embed],
           components: [selectRow, buttonRow]
         });
         return;
       }
 
-      // Caso 3: Navegação de página
-      if (i.customId === 'prev_page' || i.customId === 'next_page') {
-        if (i.customId === 'prev_page' && currentPage > 0) currentPage--;
-        if (i.customId === 'next_page' && currentPage < Math.ceil(totalConquistas / ITEMS_PER_PAGE) - 1) currentPage++;
+      if (i.customId === 'prev_page_conq' || i.customId === 'next_page_conq') {
+        const totalPages = Math.ceil(totalConquistas / ITEMS_PER_PAGE);
+        if (i.customId === 'prev_page_conq' && currentPage > 0) currentPage--;
+        if (i.customId === 'next_page_conq' && currentPage < totalPages - 1) currentPage++;
+
+        let descricaoAtualizada = `${mensagemAcesso}\n\n`;
+        
+        if (conquistasDesbloqueadas === 0 && conquistasUsuario.length === 0) {
+          descricaoAtualizada += `**📊 Todas as Conquistas do Jogo**\n\n`;
+          descricaoAtualizada += `🔒 **Não desbloqueadas:** ${totalConquistas}/${totalConquistas}\n`;
+          descricaoAtualizada += `📊 **Progresso:** 0%\n\n`;
+          descricaoAtualizada += `📌 **Legenda:**\n`;
+          descricaoAtualizada += `🔒 Conquista não desbloqueada\n\n`;
+          descricaoAtualizada += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
+        } else {
+          descricaoAtualizada += `**📊 Suas Conquistas**\n\n`;
+          descricaoAtualizada += `✅ **Desbloqueadas:** ${conquistasDesbloqueadas}/${totalConquistas}\n`;
+          descricaoAtualizada += `🔒 **Faltantes:** ${conquistasFaltantes}/${totalConquistas}\n`;
+          descricaoAtualizada += `📊 **Progresso:** ${Math.round((conquistasDesbloqueadas/totalConquistas)*100)}%\n\n`;
+          descricaoAtualizada += `📌 **Legenda:**\n`;
+          descricaoAtualizada += `✅ Conquista desbloqueada\n`;
+          descricaoAtualizada += `🔒 Conquista não desbloqueada\n\n`;
+          descricaoAtualizada += `Selecione uma conquista no menu abaixo para ver os detalhes.`;
+        }
 
         const embed = new EmbedBuilder()
           .setColor(0x00AE86)
-          .setTitle(`📋 Conquistas faltantes de ${jogoInfo.nome}`)
-          .setDescription(`Selecione uma conquista no menu abaixo para ver os detalhes.\nTotal: **${totalConquistas}** conquistas faltantes.`)
-          .setFooter({ text: `Página ${currentPage + 1} de ${Math.ceil(totalConquistas / ITEMS_PER_PAGE)}` })
+          .setTitle(`🎮 ${jogoInfo.nome}`)
+          .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
+          .setDescription(descricaoAtualizada)
+          .setFooter({ text: `Total: ${totalConquistas} conquistas • Página ${currentPage+1}/${Math.ceil(totalConquistas/ITEMS_PER_PAGE)}` })
           .setTimestamp();
 
         const selectRow = generateSelectMenu(currentPage);
         const buttonRow = generatePaginationButtons(currentPage);
 
         await i.update({
-          content: null,
           embeds: [embed],
           components: [selectRow, buttonRow]
         });
@@ -1842,12 +1784,9 @@ client.on('interactionCreate', async (interaction) => {
 
     collector.on('end', async () => {
       try {
-        const channel = client.channels.cache.get(interaction.channel.id);
-        if (channel) {
-          const msg = await channel.messages.fetch(reply.id).catch(() => null);
-          if (msg) {
-            await msg.edit({ components: [] }).catch(() => {});
-          }
+        const msg = await interaction.channel.messages.fetch(reply.id).catch(() => null);
+        if (msg) {
+          await msg.edit({ components: [] }).catch(() => {});
         }
       } catch (_) {}
     });
