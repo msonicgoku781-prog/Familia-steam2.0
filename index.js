@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM BUSCA DE VÍDEOS NO YOUTUBE
+// BOT STEAM FAMÍLIA - VERSÃO COM BUSCA DE VÍDEOS NO YOUTUBE (SIMPLIFICADA)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1050,7 +1050,7 @@ async function checkAchievements() {
 console.log('🚀 [11] Tarefas periódicas carregadas.');
 
 // ============================================================
-// 12. FUNÇÃO DE BUSCA DE VÍDEOS NO YOUTUBE
+// 12. FUNÇÃO DE BUSCA DE VÍDEOS NO YOUTUBE (SIMPLIFICADA)
 // ============================================================
 async function buscarVideoYouTube(nomeJogo, nomeConquista) {
   if (!YOUTUBE_API_KEY) {
@@ -1063,135 +1063,92 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
     const nomeJogoLimpo = nomeJogo.replace(/[^\w\s]/gi, '').trim();
     const nomeConquistaLimpo = nomeConquista.replace(/[^\w\s]/gi, '').trim();
     
-    // Termos de busca em português e inglês
-    const termosBusca = [
-      `${nomeJogoLimpo} ${nomeConquistaLimpo} trophy guide`,
-      `${nomeJogoLimpo} ${nomeConquistaLimpo} achievement guide`,
-      `${nomeJogoLimpo} ${nomeConquistaLimpo} trophy`,
-      `${nomeJogoLimpo} ${nomeConquistaLimpo} achievement`,
-      `${nomeJogoLimpo} ${nomeConquistaLimpo} como desbloquear`,
-      `${nomeJogoLimpo} ${nomeConquistaLimpo} guia`
-    ];
+    // Termo de busca simplificado
+    const termoBusca = `${nomeJogoLimpo} ${nomeConquistaLimpo} trophy achievement guide`;
+    
+    console.log(`🔍 Buscando no YouTube: "${termoBusca}"`);
+    
+    const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+      params: {
+        part: 'snippet',
+        type: 'video',
+        maxResults: 5,
+        q: termoBusca,
+        key: YOUTUBE_API_KEY,
+        relevanceLanguage: 'pt,en',
+        videoDuration: 'medium'
+      },
+      timeout: 8000
+    });
 
-    let videoEncontrado = null;
-    let melhorScore = -1;
-
-    for (const termo of termosBusca) {
-      console.log(`🔍 Buscando no YouTube: "${termo}"`);
-      
-      const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
-        params: {
-          part: 'snippet',
-          type: 'video',
-          maxResults: 10,
-          q: termo,
-          key: YOUTUBE_API_KEY,
-          relevanceLanguage: 'pt,en',
-          videoDuration: 'medium' // vídeos de 4-20 minutos
-        },
-        timeout: 8000
-      });
-
-      if (!response.data.items || response.data.items.length === 0) {
-        console.log(`⚠️ Nenhum resultado para: "${termo}"`);
-        continue;
-      }
-
-      // Para cada vídeo encontrado, busca detalhes adicionais (duração, views)
-      for (const item of response.data.items) {
-        const videoId = item.id.videoId;
-        const titulo = item.snippet.title.toLowerCase();
-        
-        // Verifica se o título contém palavras-chave relevantes
-        const palavrasChave = [
-          nomeConquistaLimpo.toLowerCase(),
-          'trophy', 'achievement', 'guia', 'guide',
-          'como', 'how to', 'desbloquear', 'unlock'
-        ];
-        
-        let score = 0;
-        for (const palavra of palavrasChave) {
-          if (titulo.includes(palavra)) score++;
-        }
-
-        // Tenta buscar detalhes do vídeo (duração e views)
-        try {
-          const videoDetails = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
-            params: {
-              part: 'contentDetails,statistics',
-              id: videoId,
-              key: YOUTUBE_API_KEY
-            },
-            timeout: 5000
-          });
-
-          if (videoDetails.data.items && videoDetails.data.items.length > 0) {
-            const details = videoDetails.data.items[0];
-            const duracao = details.contentDetails.duration;
-            
-            // Converte duração ISO 8601 para segundos
-            const duracaoSegundos = converterDuracaoISO(duracao);
-            
-            // Ignora vídeos com mais de 15 minutos
-            if (duracaoSegundos > 900) {
-              console.log(`⏱️ Vídeo "${item.snippet.title}" tem ${duracaoSegundos/60} minutos (muito longo)`);
-              continue;
-            }
-
-            // Adiciona pontos por visualizações (vídeos populares)
-            const views = parseInt(details.statistics.viewCount) || 0;
-            if (views > 1000) score += 2;
-            if (views > 10000) score += 3;
-            if (views > 100000) score += 5;
-
-            // Prioriza vídeos mais curtos (idealmente 3-8 minutos)
-            if (duracaoSegundos >= 180 && duracaoSegundos <= 480) score += 2;
-          }
-        } catch (e) {
-          console.log(`⚠️ Erro ao buscar detalhes do vídeo ${videoId}:`, e.message);
-        }
-
-        // Prioriza vídeos com título mais relevante
-        if (titulo.includes(nomeJogoLimpo.toLowerCase())) score += 2;
-        if (titulo.includes('guide') || titulo.includes('guia')) score += 2;
-        if (titulo.includes('trophy') || titulo.includes('achievement')) score += 2;
-
-        console.log(`📊 Vídeo "${item.snippet.title}" - Score: ${score}`);
-
-        if (score > melhorScore) {
-          melhorScore = score;
-          videoEncontrado = {
-            id: videoId,
-            titulo: item.snippet.title,
-            descricao: item.snippet.description,
-            canal: item.snippet.channelTitle,
-            thumbnail: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default?.url,
-            link: `https://www.youtube.com/watch?v=${videoId}`
-          };
-        }
-      }
-
-      // Se encontrou um vídeo com score alto, para de buscar
-      if (videoEncontrado && melhorScore >= 5) {
-        console.log(`✅ Vídeo encontrado com score ${melhorScore}: "${videoEncontrado.titulo}"`);
-        break;
-      }
+    if (!response.data.items || response.data.items.length === 0) {
+      console.log(`⚠️ Nenhum resultado para: "${termoBusca}"`);
+      return null;
     }
 
-    return videoEncontrado;
+    console.log(`📊 Encontrados ${response.data.items.length} vídeos, buscando visualizações...`);
+
+    // Buscar detalhes de TODOS os vídeos (visualizações)
+    const videoIds = response.data.items.map(item => item.id.videoId).join(',');
+    
+    let videoDetails = null;
+    try {
+      const detailsResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
+        params: {
+          part: 'statistics',
+          id: videoIds,
+          key: YOUTUBE_API_KEY
+        },
+        timeout: 5000
+      });
+      videoDetails = detailsResponse.data.items;
+    } catch (e) {
+      console.log(`⚠️ Erro ao buscar detalhes dos vídeos:`, e.message);
+    }
+
+    // Criar lista com todos os vídeos e suas visualizações
+    let videosComViews = response.data.items.map(item => {
+      let views = 0;
+      if (videoDetails) {
+        const detail = videoDetails.find(d => d.id === item.id.videoId);
+        if (detail && detail.statistics) {
+          views = parseInt(detail.statistics.viewCount) || 0;
+        }
+      }
+      return {
+        id: item.id.videoId,
+        titulo: item.snippet.title,
+        descricao: item.snippet.description,
+        canal: item.snippet.channelTitle,
+        thumbnail: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default?.url,
+        link: `https://www.youtube.com/watch?v=${item.id.videoId}`,
+        views: views
+      };
+    });
+
+    // Ordenar por visualizações (maior primeiro)
+    videosComViews.sort((a, b) => b.views - a.views);
+
+    // Mostrar os vídeos encontrados
+    console.log(`📊 Vídeos encontrados (ordenados por visualizações):`);
+    videosComViews.forEach((v, i) => {
+      console.log(`  ${i+1}. "${v.titulo.substring(0, 50)}..." - ${v.views.toLocaleString()} views`);
+    });
+
+    // Pegar o vídeo com MAIS visualizações
+    const videoEscolhido = videosComViews[0];
+    
+    if (videoEscolhido) {
+      console.log(`✅ Vídeo escolhido: "${videoEscolhido.titulo}" - ${videoEscolhido.views.toLocaleString()} views`);
+      console.log(`🔗 Link: ${videoEscolhido.link}`);
+      return videoEscolhido;
+    }
+
+    return null;
   } catch (error) {
     console.error('❌ Erro ao buscar vídeo no YouTube:', error.message);
     return null;
   }
-}
-
-// Função auxiliar para converter duração ISO 8601 para segundos
-function converterDuracaoISO(duracao) {
-  const match = duracao.match(/PT(\d+H)?(\d+M)?(\d+S)?/);
-  const hours = parseInt(match[1]) || 0;
-  const minutes = parseInt(match[2]) || 0;
-  const seconds = parseInt(match[3]) || 0;
-  return hours * 3600 + minutes * 60 + seconds;
 }
 
 console.log('🚀 [12] Função de busca de vídeos carregada.');
@@ -1694,7 +1651,7 @@ client.on('interactionCreate', async (interaction) => {
     const usuarioTemJogo = donosDoJogo.some(d => d.steamId === userSteamId);
     const nomesDonos = donosDoJogo.map(d => d.nome).join(', ');
 
-    // 8. 🔥 FUNÇÃO PARA GERAR EMBED DA CONQUISTA COM VÍDEO
+    // 8. FUNÇÃO PARA GERAR EMBED DA CONQUISTA COM VÍDEO
     async function generateAchievementEmbed(ach, index) {
       // Buscar imagem do ícone
       let imageUrl = ach.icon;
@@ -1735,7 +1692,7 @@ client.on('interactionCreate', async (interaction) => {
         })
         .setTimestamp();
 
-      // 🔥 CRIAR BOTÕES
+      // CRIAR BOTÕES
       const buttons = new ActionRowBuilder();
       
       // Botão Voltar
@@ -1746,7 +1703,7 @@ client.on('interactionCreate', async (interaction) => {
           .setStyle(ButtonStyle.Secondary)
       );
 
-      // 🔥 BUSCAR VÍDEO NO YOUTUBE
+      // BUSCAR VÍDEO NO YOUTUBE
       if (YOUTUBE_API_KEY) {
         try {
           console.log(`🔍 Buscando vídeo para: ${jogoInfo.nome} - ${ach.displayName}`);
@@ -1870,7 +1827,7 @@ client.on('interactionCreate', async (interaction) => {
     const collector = interaction.channel.createMessageComponentCollector({ filter, time: 180000 });
 
     collector.on('collect', async (i) => {
-      // 🔥 SE FOR BOTÃO DE VÍDEO
+      // SE FOR BOTÃO DE VÍDEO
       if (i.customId.startsWith('video_')) {
         const videoLink = videoLinksMap.get(i.customId);
         if (videoLink) {
