@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO FINAL (COM ADIÇÃO DE JOGOS RECENTES)
+// BOT STEAM FAMÍLIA - VERSÃO FINAL CORRIGIDA
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -300,7 +300,7 @@ async function getOwnedGames(steamId) {
   return data?.response?.games || [];
 }
 
-async function getRecentlyPlayedGames(steamId, limit = 5) {
+async function getRecentlyPlayedGames(steamId, limit = 3) {
   const data = await fetchSteam(
     'https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v1/',
     { steamid: steamId, count: limit, format: 'json' }
@@ -1022,9 +1022,6 @@ async function checkNewGames() {
   }
 }
 
-// ============================================================
-// 11.1 CHECK ACHIEVEMENTS (MODIFICADO - ADICIONA JOGOS RECENTES AO HISTÓRICO)
-// ============================================================
 async function checkAchievements() {
   try {
     for (const steamId of STEAM_IDS_ARRAY) {
@@ -1035,51 +1032,19 @@ async function checkAchievements() {
         const discordId = member.discordId;
         const mention = `<@${discordId}>`;
 
-        // 🔥 PEGA O JOGO ATUAL E OS RECENTES
         const currentGame = await getCurrentGame(steamId);
-        let recentGames = await getRecentlyPlayedGames(steamId, 5);
+        let recentGames = await getRecentlyPlayedGames(steamId, 3);
         let gamesToCheck = [];
-        
-        // 🔥 ADICIONA OS JOGOS RECENTES AO HISTÓRICO (MESMO QUE NÃO SEJA DONO)
-        const jogosParaAdicionar = [];
-        
         if (currentGame) {
           const jaExiste = recentGames.some(g => g.appid === currentGame.appid);
           const currentGameObj = { appid: currentGame.appid, name: currentGame.name, rtime_last_played: Date.now() / 1000 };
           if (jaExiste) {
             recentGames = recentGames.filter(g => g.appid !== currentGame.appid);
           }
-          gamesToCheck = [currentGameObj, ...recentGames.slice(0, 4)];
-          
-          // 🔥 Adiciona o jogo atual ao histórico
-          jogosParaAdicionar.push(currentGame.appid);
+          gamesToCheck = [currentGameObj, ...recentGames.slice(0, 2)];
         } else {
-          gamesToCheck = recentGames.slice(0, 5);
+          gamesToCheck = recentGames.slice(0, 3);
         }
-        
-        // 🔥 ADICIONA OS JOGOS RECENTES AO HISTÓRICO
-        for (const game of recentGames) {
-          jogosParaAdicionar.push(game.appid);
-        }
-        
-        // 🔥 ATUALIZA O DB COM OS JOGOS RECENTES (MESMO QUE NÃO SEJA DONO)
-        if (jogosParaAdicionar.length > 0) {
-          if (!db.historicoJogos[steamId]) {
-            db.historicoJogos[steamId] = [];
-          }
-          let adicionados = 0;
-          for (const appid of jogosParaAdicionar) {
-            if (!db.historicoJogos[steamId].includes(appid)) {
-              db.historicoJogos[steamId].push(appid);
-              adicionados++;
-            }
-          }
-          if (adicionados > 0) {
-            console.log(`📥 ${userName}: ${adicionados} jogos recentes adicionados ao histórico`);
-            await salvarDBNoCanal();
-          }
-        }
-        
         await verificarConquistas(steamId, gamesToCheck, mention, userName);
       } catch (err) {
         console.error(`❌ Erro em ${steamId}:`, err.message);
@@ -1154,8 +1119,10 @@ async function carregarMapeamentoDoCanal(channel) {
 }
 
 // ============================================================
-// 14. EVENTO clientReady (SEM MENSAGEM PARA O DONO)
+// 14. EVENTO clientReady
 // ============================================================
+let botIniciado = false;
+
 client.once('clientReady', async () => {
   console.log(`✅ Bot online como ${client.user.tag}`);
   console.log(`📋 Banco de dados armazenado como anexo no canal: <#${QUERO_CHANNEL}>`);
@@ -1238,8 +1205,17 @@ client.once('clientReady', async () => {
     setInterval(verificarPromocoesQuero, 5 * 60 * 1000);
     console.log('🔄 Monitorando conquistas a cada 30s, novos jogos a cada 5min.');
 
-    console.log('✅ Bot inicializado com sucesso.');
-
+    // 🔥 CORREÇÃO: Só envia a mensagem UMA VEZ
+    if (!botIniciado) {
+      botIniciado = true;
+      try {
+        const dono = await client.users.fetch(DONO_ID);
+        await dono.send('🚀 Bot Steam Família está online! Comando /conquista (por jogo) adicionado.');
+        console.log('✅ Mensagem de inicialização enviada ao dono.');
+      } catch (err) {
+        console.log('⚠️ Não foi possível enviar mensagem ao dono:', err.message);
+      }
+    }
   } catch (err) {
     console.error('❌ ERRO FATAL NO EVENTO clientReady:', err);
     console.error('❌ Stack:', err.stack);
@@ -1445,12 +1421,10 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (OTIMIZADO - APENAS DB LOCAL)
+  // 🔥 COMANDO /conquista (CORRIGIDO - NÃO REPETE CONQUISTAS)
   // ============================================================
   if (interaction.commandName === 'conquista') {
-    // 🔥 DEFER COM EPHEMERAL LOGO NO INÍCIO
     await interaction.deferReply({ ephemeral: true });
-    
     const nomeJogoInput = interaction.options.getString('jogo').trim();
 
     // 1. Identificar o Steam ID do usuário
@@ -1475,35 +1449,12 @@ client.on('interactionCreate', async (interaction) => {
     const appid = jogoInfo.appid;
 
     // 3. Verifica se é o Mega Man X Legacy Collection (appid 743890)
+    // 🔥 CORREÇÃO: Verifica APENAS o appid, não o nome
     const isMegaManX = (appid === 743890);
 
     // Variável para armazenar a lista de conquistas (faltantes) e a página atual
     let conquistasList = [];
     let totalConquistas = 0;
-
-    // ============================================================
-    // 🔥 VERIFICA SE ALGUM MEMBRO DA FAMÍLIA POSSUI O JOGO (APENAS DB LOCAL)
-    // ============================================================
-    let possuiNaFamilia = false;
-    let donoDoJogo = null;
-    
-    for (const sid of STEAM_IDS_ARRAY) {
-      if ((db.historicoJogos[sid] || []).includes(appid)) {
-        possuiNaFamilia = true;
-        const member = MEMBROS[sid];
-        if (member) {
-          donoDoJogo = member.nome;
-        }
-        break;
-      }
-    }
-    
-    if (!possuiNaFamilia) {
-      await interaction.editReply(`❌ **${jogoInfo.nome}** não está na biblioteca da família.`);
-      return;
-    }
-    
-    console.log(`✅ Jogo encontrado na família! Dono: ${donoDoJogo || 'desconhecido'}`);
 
     // ============================================================
     // OBTÉM A LISTA DE CONQUISTAS (MEGA MAN X JSON OU STEAM)
@@ -1537,6 +1488,12 @@ client.on('interactionCreate', async (interaction) => {
     } else {
       // Para outros jogos: usa a Steam
       console.log(`🎮 Usando Steam API para: ${jogoInfo.nome} (AppID: ${appid})`);
+      const ownedGames = await getOwnedGames(steamId);
+      const possui = ownedGames.some(g => g.appid === appid);
+      if (!possui) {
+        await interaction.editReply(`❌ Você **não possui** **${jogoInfo.nome}** na sua biblioteca.`);
+        return;
+      }
 
       let schemaData;
       try {
@@ -1584,16 +1541,9 @@ client.on('interactionCreate', async (interaction) => {
     totalConquistas = conquistasList.length;
 
     // ============================================================
-    // FUNÇÃO GERAR EMBED DA CONQUISTA (COM LOGS DE TRADUÇÃO)
+    // FUNÇÃO GERAR EMBED DA CONQUISTA (COM TRADUÇÃO FORÇADA)
     // ============================================================
     async function generateAchievementEmbed(ach) {
-      console.log(`\n🔍 ===== INICIANDO generateAchievementEmbed =====`);
-      console.log(`📌 Nome da conquista: ${ach.name}`);
-      console.log(`📌 DisplayName: ${ach.displayName}`);
-      console.log(`📌 Descrição original: "${ach.description}"`);
-      console.log(`📌 Jogo: ${jogoInfo.nome} (AppID: ${appid})`);
-      console.log(`📌 isMegaManX: ${isMegaManX}`);
-      
       // Prioridade: campo "video" do JSON (forçando HTTPS)
       let videoLink = ach.video ? ach.video.replace(/^http:/, 'https:') : null;
 
@@ -1624,42 +1574,34 @@ client.on('interactionCreate', async (interaction) => {
       const url = videoLink || `https://store.steampowered.com/app/${appid}`;
 
       // ============================================================
-      // 🔥 TRADUÇÃO DA DESCRIÇÃO COM LOGS DETALHADOS
+      // 🔥 TRADUÇÃO FORÇADA DA DESCRIÇÃO PARA PORTUGUÊS
       // ============================================================
       let descricao = ach.description || 'Sem descrição disponível';
-      console.log(`📝 Descrição inicial: "${descricao}"`);
       
       // Se for "Sem descrição disponível" ou vazio, não tenta traduzir
       if (descricao === 'Sem descrição disponível' || descricao === 'Sem descrição' || descricao.trim() === '') {
-        console.log(`⚠️ Descrição vazia ou genérica, não traduzindo.`);
         descricao = '📝 Descrição não disponível para esta conquista.';
       } else {
         // Verifica se a descrição já está em português (tem caracteres acentuados)
         const temAcento = /[áàâãéêíóôõúç]/i.test(descricao);
-        console.log(`🔍 Verificando se tem acentos: ${temAcento ? 'SIM' : 'NÃO'}`);
-        console.log(`🔍 Tamanho da descrição: ${descricao.length} caracteres`);
         
         if (!temAcento && descricao.length > 3) {
-          console.log(`🔄 Iniciando tradução para: "${descricao}"`);
+          console.log(`🔄 Traduzindo descrição: "${descricao.substring(0, 50)}..."`);
           try {
             const traducao = await traduzirTexto(descricao);
-            console.log(`📥 Resposta da tradução: "${traducao}"`);
             if (traducao && !traducao.includes('INVALID') && !traducao.includes('ERROR')) {
               descricao = traducao;
-              console.log(`✅ TRADUÇÃO CONCLUÍDA: "${descricao}"`);
+              console.log(`✅ Tradução concluída: "${descricao.substring(0, 50)}..."`);
             } else {
-              console.log(`⚠️ Tradução retornou erro ou inválido, mantendo original: "${descricao}"`);
+              console.log(`⚠️ Tradução falhou, mantendo original`);
             }
           } catch (e) {
             console.log(`❌ Erro ao traduzir: ${e.message}`);
-            console.log(`📄 Stack: ${e.stack}`);
           }
         } else {
-          console.log(`ℹ️ Descrição NÃO será traduzida. Motivo: ${!temAcento ? 'já tem acentos (português)' : 'muito curta'}`);
+          console.log(`ℹ️ Descrição já parece estar em português ou é muito curta: "${descricao.substring(0, 30)}..."`);
         }
       }
-
-      console.log(`📝 Descrição FINAL: "${descricao}"`);
 
       // ============================================================
       // 🔥 BUSCA A IMAGEM DO ÍCONE
@@ -1709,7 +1651,6 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       console.log(`📦 URL FINAL da imagem para ${ach.name}: ${imageUrl}`);
-      console.log(`===== FIM generateAchievementEmbed =====\n`);
 
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
