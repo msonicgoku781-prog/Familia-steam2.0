@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM BOTÃO DE VÍDEO SOB DEMANDA
+// BOT STEAM FAMÍLIA - VERSÃO COM BUSCA DE VÍDEO OTIMIZADA
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1050,7 +1050,7 @@ async function checkAchievements() {
 console.log('🚀 [11] Tarefas periódicas carregadas.');
 
 // ============================================================
-// 12. FUNÇÃO DE BUSCA DE VÍDEOS NO YOUTUBE
+// 12. FUNÇÃO DE BUSCA DE VÍDEOS NO YOUTUBE (OTIMIZADA E RÁPIDA)
 // ============================================================
 async function buscarVideoYouTube(nomeJogo, nomeConquista) {
   if (!YOUTUBE_API_KEY) {
@@ -1064,108 +1064,78 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
     
     console.log(`🎯 Buscando vídeo: "${nomeJogoLimpo}" - "${nomeConquistaLimpo}"`);
 
-    const termoBusca = `"${nomeConquistaLimpo}" "${nomeJogoLimpo}" trophy`;
+    // 🔥 APENAS 1 TERMO DE BUSCA SIMPLES E RÁPIDO
+    const termoBusca = `${nomeConquistaLimpo} ${nomeJogoLimpo} trophy`;
     
     console.log(`🔍 Buscando: "${termoBusca}"`);
     
-    const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+    // 🔥 TIMEOUT DE 5 SEGUNDOS
+    const searchResponse = await axios.get('https://www.googleapis.com/youtube/v3/search', {
       params: {
         part: 'snippet',
         type: 'video',
-        maxResults: 5,
+        maxResults: 3,
         q: termoBusca,
         key: YOUTUBE_API_KEY,
-        order: 'relevance',
-        relevanceLanguage: 'pt,en'
+        order: 'relevance'
       },
-      timeout: 8000
+      timeout: 5000
     });
 
-    if (!response.data.items?.length) {
+    if (!searchResponse.data.items?.length) {
       console.log(`⚠️ Nenhum resultado para: "${termoBusca}"`);
       return null;
     }
 
-    console.log(`📊 Encontrou ${response.data.items.length} vídeos`);
+    console.log(`📊 Encontrou ${searchResponse.data.items.length} vídeos`);
 
-    const videoIds = response.data.items.map(item => item.id.videoId).join(',');
-    let statsResponse = null;
+    // 🔥 PEGA O PRIMEIRO VÍDEO SEM BUSCAR ESTATÍSTICAS (MAIS RÁPIDO)
+    const primeiroVideo = searchResponse.data.items[0];
     
+    // 🔥 TENTA BUSCAR ESTATÍSTICAS RAPIDAMENTE (SE FALHAR, USA O PRIMEIRO)
+    let videoInfo = {
+      id: primeiroVideo.id.videoId,
+      titulo: primeiroVideo.snippet.title,
+      canal: primeiroVideo.snippet.channelTitle,
+      link: `https://www.youtube.com/watch?v=${primeiroVideo.id.videoId}`,
+      views: 0,
+      duracao: 0,
+      score: 0
+    };
+
     try {
-      statsResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
-        params: {
-          part: 'statistics,contentDetails',
-          id: videoIds,
-          key: YOUTUBE_API_KEY
-        },
-        timeout: 5000
-      });
+      // 🔥 TIMEOUT DE 3 SEGUNDOS PARA ESTATÍSTICAS
+      const statsResponse = await Promise.race([
+        axios.get('https://www.googleapis.com/youtube/v3/videos', {
+          params: {
+            part: 'statistics',
+            id: primeiroVideo.id.videoId,
+            key: YOUTUBE_API_KEY
+          },
+          timeout: 3000
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
+      ]);
+
+      if (statsResponse?.data?.items?.length > 0) {
+        const stats = statsResponse.data.items[0];
+        if (stats.statistics) {
+          videoInfo.views = parseInt(stats.statistics.viewCount) || 0;
+        }
+      }
     } catch (e) {
-      console.log(`⚠️ Erro nas estatísticas: ${e.message}`);
+      console.log(`⚠️ Erro nas estatísticas (usando vídeo sem views): ${e.message}`);
     }
 
-    const conquistaLower = nomeConquistaLimpo.toLowerCase();
-
-    let videosComScore = response.data.items.map((item) => {
-      let views = 0;
-      let duracaoSegundos = 9999;
-
-      if (statsResponse?.data?.items) {
-        const detalhesVideo = statsResponse.data.items.find(d => d.id === item.id.videoId);
-        if (detalhesVideo) {
-          if (detalhesVideo.statistics) {
-            views = parseInt(detalhesVideo.statistics.viewCount) || 0;
-          }
-          if (detalhesVideo.contentDetails) {
-            duracaoSegundos = converterDuracaoISO(detalhesVideo.contentDetails.duration);
-          }
-        }
-      }
-
-      const titulo = item.snippet.title;
-      const tituloLower = titulo.toLowerCase();
-      
-      let score = 0;
-      
-      if (tituloLower.includes(conquistaLower)) {
-        score += 100;
-        if (tituloLower.startsWith(conquistaLower)) {
-          score += 50;
-        }
-      }
-      
-      if (duracaoSegundos >= 60 && duracaoSegundos <= 300) {
-        score += 30;
-      } else if (duracaoSegundos > 300 && duracaoSegundos <= 480) {
-        score += 20;
-      } else if (duracaoSegundos > 480 && duracaoSegundos <= 600) {
-        score += 10;
-      } else if (duracaoSegundos > 600) {
-        score -= 30;
-      }
-      
-      if (views > 10000) score += 5;
-      else if (views > 5000) score += 3;
-      else if (views > 1000) score += 1;
-
-      return {
-        id: item.id.videoId,
-        titulo: titulo,
-        canal: item.snippet.channelTitle,
-        link: `https://www.youtube.com/watch?v=${item.id.videoId}`,
-        views: views,
-        duracao: duracaoSegundos,
-        score: score
-      };
-    });
-
-    videosComScore.sort((a, b) => b.score - a.score);
-
-    console.log(`📊 Melhor vídeo: "${videosComScore[0]?.titulo.substring(0, 50)}..." - Score: ${videosComScore[0]?.score}`);
+    console.log(`✅ Vídeo encontrado: "${videoInfo.titulo}" (${videoInfo.views.toLocaleString()} views)`);
+    console.log(`🔗 ${videoInfo.link}`);
     
-    return videosComScore[0] || null;
+    return videoInfo;
   } catch (error) {
     console.error('❌ Erro na busca:', error.message);
+    if (error.code === 'ECONNABORTED') {
+      console.error('⏰ Timeout na busca do YouTube');
+    }
     return null;
   }
 }
@@ -1866,7 +1836,7 @@ client.on('interactionCreate', async (interaction) => {
     const collector = interaction.channel.createMessageComponentCollector({ filter, time: 180000 });
 
     collector.on('collect', async (i) => {
-      // 🔥 BOTÃO DE VÍDEO - Busca o vídeo AGORA
+      // 🔥 BOTÃO DE VÍDEO - Busca o vídeo AGORA com TIMEOUT
       if (i.customId.startsWith('video_')) {
         const videoData = videoLinksMap.get(i.customId);
         
@@ -1880,23 +1850,27 @@ client.on('interactionCreate', async (interaction) => {
 
         // Avisa que está buscando
         await i.reply({
-          content: '🔍 Buscando vídeo guia no YouTube... Aguarde um momento.',
+          content: '🔍 Buscando vídeo guia no YouTube... (máximo 6 segundos)',
           flags: MessageFlags.Ephemeral
         });
 
         try {
-          // Busca o vídeo
-          const videoInfo = await buscarVideoYouTube(videoData.jogo, videoData.conquista);
+          // 🔥 PROMISE COM TIMEOUT DE 6 SEGUNDOS
+          const videoPromise = buscarVideoYouTube(videoData.jogo, videoData.conquista);
+          const timeoutPromise = new Promise((resolve) => {
+            setTimeout(() => resolve(null), 6000);
+          });
+          
+          const videoInfo = await Promise.race([videoPromise, timeoutPromise]);
           
           if (videoInfo) {
-            // Atualiza a mensagem com o link do vídeo
             await i.editReply({
               content: `🎬 **Vídeo guia para "${videoData.conquista}":**\n${videoInfo.link}`,
               flags: MessageFlags.Ephemeral
             });
           } else {
             await i.editReply({
-              content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}" em "${videoData.jogo}".\nTente buscar manualmente no YouTube.`,
+              content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}" em "${videoData.jogo}" em menos de 6 segundos.\n\n💡 Tente buscar manualmente no YouTube:\n\`"${videoData.conquista}" "${videoData.jogo}" trophy\``,
               flags: MessageFlags.Ephemeral
             });
           }
@@ -2040,12 +2014,17 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     await interaction.reply({
-      content: `🔍 Buscando vídeo para "${videoData.conquista}"...`,
+      content: '🔍 Buscando vídeo guia no YouTube... (máximo 6 segundos)',
       flags: MessageFlags.Ephemeral
     });
 
     try {
-      const videoInfo = await buscarVideoYouTube(videoData.jogo, videoData.conquista);
+      const videoPromise = buscarVideoYouTube(videoData.jogo, videoData.conquista);
+      const timeoutPromise = new Promise((resolve) => {
+        setTimeout(() => resolve(null), 6000);
+      });
+      
+      const videoInfo = await Promise.race([videoPromise, timeoutPromise]);
       
       if (videoInfo) {
         await interaction.editReply({
@@ -2054,7 +2033,7 @@ client.on('interactionCreate', async (interaction) => {
         });
       } else {
         await interaction.editReply({
-          content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}" em "${videoData.jogo}".`,
+          content: `❌ Nenhum vídeo encontrado para "${videoData.conquista}" em "${videoData.jogo}" em menos de 6 segundos.\n\n💡 Tente buscar manualmente no YouTube:\n\`"${videoData.conquista}" "${videoData.jogo}" trophy\``,
           flags: MessageFlags.Ephemeral
         });
       }
