@@ -732,7 +732,7 @@ async function enviarRegras() {
       '`/quero-remover [jogo]` – Remove um jogo da sua lista /quero.\n' +
       '`/dbstatus` – Status do banco de dados (apenas dono).\n' +
       '`/regras` – Exibe esta mensagem novamente.\n' +
-      '`/conquista jogo:"nome"` – Mostra todas as conquistas de um jogo (mesmo se você não tiver).\n\n' +
+      '`/conquista jogo:"nome"` – Mostra todas as conquistas de um jogo com vídeos guia.\n\n' +
       '**🔔 NOTIFICAÇÕES**\n' +
       '• 🆕 Novos jogos compatíveis são anunciados com `@everyone`.\n' +
       '• 🏆 Conquistas são monitoradas e notificadas no canal de conquistas.\n' +
@@ -1320,7 +1320,7 @@ client.once('clientReady', async () => {
         { name: 'regras', description: 'Mostra as regras e comandos do servidor' },
         {
           name: 'conquista',
-          description: 'Mostra todas as conquistas de um jogo (mesmo se você não tiver)',
+          description: 'Mostra todas as conquistas de um jogo com vídeos guia',
           options: [
             {
               name: 'jogo',
@@ -1720,45 +1720,6 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // 🔥 BUSCAR VÍDEO NO YOUTUBE
-      let videoInfo = null;
-      if (YOUTUBE_API_KEY) {
-        try {
-          videoInfo = await buscarVideoYouTube(jogoInfo.nome, ach.displayName);
-          if (videoInfo) {
-            console.log(`✅ Vídeo encontrado para "${ach.displayName}": ${videoInfo.link}`);
-          } else {
-            console.log(`⚠️ Nenhum vídeo encontrado para "${ach.displayName}"`);
-          }
-        } catch (e) {
-          console.error(`❌ Erro ao buscar vídeo para ${ach.displayName}:`, e.message);
-        }
-      }
-
-      // Criar botões
-      const buttons = new ActionRowBuilder();
-      
-      // Botão Voltar
-      buttons.addComponents(
-        new ButtonBuilder()
-          .setCustomId('back_to_list_conq')
-          .setLabel('🔙 Voltar à lista')
-          .setStyle(ButtonStyle.Secondary)
-      );
-
-      // Botão Vídeo (se encontrou)
-      if (videoInfo) {
-        const videoId = `video_${ach.name.slice(0, 20)}_${Date.now()}`;
-        videoLinksMap.set(videoId, videoInfo.link);
-        
-        buttons.addComponents(
-          new ButtonBuilder()
-            .setCustomId(videoId)
-            .setLabel('🎬 Ver vídeo guia')
-            .setStyle(ButtonStyle.Primary)
-        );
-      }
-
       const embed = new EmbedBuilder()
         .setColor(ach.desbloqueada ? 0x00FF00 : 0xFF4444)
         .setTitle(`🏆 ${ach.displayName}`)
@@ -1774,7 +1735,45 @@ client.on('interactionCreate', async (interaction) => {
         })
         .setTimestamp();
 
-      return { embed, buttons, videoInfo };
+      // 🔥 CRIAR BOTÕES
+      const buttons = new ActionRowBuilder();
+      
+      // Botão Voltar
+      buttons.addComponents(
+        new ButtonBuilder()
+          .setCustomId('back_to_list_conq')
+          .setLabel('🔙 Voltar à lista')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+      // 🔥 BUSCAR VÍDEO NO YOUTUBE
+      if (YOUTUBE_API_KEY) {
+        try {
+          console.log(`🔍 Buscando vídeo para: ${jogoInfo.nome} - ${ach.displayName}`);
+          
+          const videoInfo = await buscarVideoYouTube(jogoInfo.nome, ach.displayName);
+          
+          if (videoInfo) {
+            console.log(`✅ Vídeo encontrado: ${videoInfo.link}`);
+            // Usa um ID único baseado no nome da conquista
+            const videoId = `video_${ach.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            videoLinksMap.set(videoId, videoInfo.link);
+            
+            buttons.addComponents(
+              new ButtonBuilder()
+                .setCustomId(videoId)
+                .setLabel('🎬 Ver vídeo guia')
+                .setStyle(ButtonStyle.Primary)
+            );
+          } else {
+            console.log(`⚠️ Nenhum vídeo encontrado para: ${ach.displayName}`);
+          }
+        } catch (e) {
+          console.error(`❌ Erro ao buscar vídeo para ${ach.displayName}:`, e.message);
+        }
+      }
+
+      return { embed, buttons };
     }
 
     // 9. Configurar paginação
@@ -1889,7 +1888,7 @@ client.on('interactionCreate', async (interaction) => {
           }
         } else {
           await i.reply({
-            content: '❌ Link do vídeo não encontrado.',
+            content: '❌ Link do vídeo não encontrado. Tente novamente.',
             ephemeral: true
           });
         }
@@ -1900,7 +1899,7 @@ client.on('interactionCreate', async (interaction) => {
       if (i.customId === 'conquista_select') {
         const selectedIndex = parseInt(i.values[0]);
         const ach = conquistasList[selectedIndex];
-        const { embed, buttons, videoInfo } = await generateAchievementEmbed(ach, selectedIndex);
+        const { embed, buttons } = await generateAchievementEmbed(ach, selectedIndex);
 
         await i.update({
           embeds: [embed],
