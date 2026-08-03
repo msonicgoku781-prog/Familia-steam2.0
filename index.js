@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (COM ÍCONES VIA API)
+// BOT STEAM FAMÍLIA - VERSÃO COM /conquista (COM ÍCONES VIA API - 3 CAMADAS DE FALLBACK)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -436,36 +436,102 @@ async function getAchievementDescription(appId, apiname) {
 }
 
 // ============================================================
-// 6.1 FUNÇÃO PARA OBTER URL DO ÍCONE COM PROXY E FALLBACK
+// 6.1 FUNÇÃO PARA OBTER URL DO ÍCONE (3 CAMADAS DE FALLBACK)
 // ============================================================
 async function getAchievementImageUrl(appId, apiname) {
+  console.log(`🔍 Buscando ícone para: ${apiname} (AppID: ${appId})`);
+  
   try {
+    // PASSO 1: Busca o schema do jogo para obter o nome do ícone
     const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
     const params = { key: STEAM_KEY, appid: appId, l: 'portuguese' };
     const data = await fetchSteam(url, params, 2);
     
-    if (data?.game?.availableGameStats?.achievements) {
-      const ach = data.game.availableGameStats.achievements.find(a => a.name === apiname);
-      if (ach && ach.icon) {
-        const originalUrl = `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${appId}/${ach.icon}.jpg`;
-        
-        // Tenta usar um proxy para evitar bloqueios
-        try {
-          const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(originalUrl)}&w=200&h=200&fit=cover`;
-          const test = await axios.head(proxyUrl, { timeout: 3000 });
-          if (test.status === 200) {
-            return proxyUrl;
+    if (!data?.game?.availableGameStats?.achievements) {
+      console.log(`⚠️ Schema não encontrado para o jogo ${appId}`);
+      return null;
+    }
+    
+    const ach = data.game.availableGameStats.achievements.find(a => a.name === apiname);
+    if (!ach || !ach.icon) {
+      console.log(`⚠️ Ícone não encontrado no schema para ${apiname}`);
+      return null;
+    }
+    
+    const iconName = ach.icon;
+    console.log(`📦 Nome do ícone: ${iconName}`);
+    
+    // ============================================================
+    // CAMADA 1: Tenta a URL direta da Steam (CDN)
+    // ============================================================
+    const baseUrl = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/${appId}/${iconName}`;
+    const formatos = ['.jpg', '.png'];
+    
+    for (const formato of formatos) {
+      const urlTeste = baseUrl + formato;
+      try {
+        console.log(`🔄 Testando URL: ${urlTeste}`);
+        const test = await axios.head(urlTeste, { 
+          timeout: 5000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8'
           }
-        } catch (_) {}
-
-        // Fallback: retorna a URL original (pode dar erro 403, mas vale tentar)
-        return originalUrl;
+        });
+        if (test.status === 200) {
+          console.log(`✅ Ícone encontrado (CDN): ${urlTeste}`);
+          return urlTeste;
+        }
+      } catch (e) {
+        console.log(`❌ Falha no teste ${formato}: ${e.message}`);
       }
     }
+    
+    // ============================================================
+    // CAMADA 2: Tenta via proxy (images.weserv.nl)
+    // ============================================================
+    console.log('🔄 Tentando via proxy...');
+    for (const formato of formatos) {
+      const urlTeste = baseUrl + formato;
+      try {
+        const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(urlTeste)}&w=200&h=200&fit=cover`;
+        console.log(`🔄 Testando proxy: ${proxyUrl}`);
+        const test = await axios.head(proxyUrl, { timeout: 5000 });
+        if (test.status === 200) {
+          console.log(`✅ Ícone encontrado (proxy): ${proxyUrl}`);
+          return proxyUrl;
+        }
+      } catch (e) {
+        console.log(`❌ Falha no proxy ${formato}: ${e.message}`);
+      }
+    }
+    
+    // ============================================================
+    // CAMADA 3: Tenta via outro proxy (cors-anywhere)
+    // ============================================================
+    console.log('🔄 Tentando via CORS-Anywhere...');
+    for (const formato of formatos) {
+      const urlTeste = baseUrl + formato;
+      try {
+        const proxyUrl = `https://cors-anywhere.herokuapp.com/${urlTeste}`;
+        console.log(`🔄 Testando CORS-Anywhere: ${proxyUrl}`);
+        const test = await axios.head(proxyUrl, { timeout: 5000 });
+        if (test.status === 200) {
+          console.log(`✅ Ícone encontrado (CORS-Anywhere): ${proxyUrl}`);
+          return proxyUrl;
+        }
+      } catch (e) {
+        console.log(`❌ Falha no CORS-Anywhere ${formato}: ${e.message}`);
+      }
+    }
+    
+    console.log(`❌ Todas as tentativas falharam para ${apiname}`);
+    return null;
+    
   } catch (e) {
-    console.log(`⚠️ Erro ao buscar imagem para ${apiname}:`, e.message);
+    console.log(`❌ Erro crítico ao buscar ícone para ${apiname}:`, e.message);
+    return null;
   }
-  return null;
 }
 
 // ============================================================
@@ -1333,7 +1399,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // ============================================================
-  // 🔥 COMANDO /conquista (COM ÍCONES VIA API + TRADUÇÃO)
+  // 🔥 COMANDO /conquista (COM 3 CAMADAS DE FALLBACK PARA ÍCONES)
   // ============================================================
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ ephemeral: true });
@@ -1447,7 +1513,7 @@ client.on('interactionCreate', async (interaction) => {
     totalConquistas = conquistasList.length;
 
     // ============================================================
-    // FUNÇÃO GERAR EMBED DA CONQUISTA (COM ÍCONE VIA API)
+    // FUNÇÃO GERAR EMBED DA CONQUISTA (COM 3 CAMADAS DE FALLBACK)
     // ============================================================
     async function generateAchievementEmbed(ach) {
       // Prioridade: campo "video" do JSON (forçando HTTPS)
@@ -1488,20 +1554,43 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // 🔥 BUSCA A IMAGEM DO ÍCONE VIA API STEAM
+      // ============================================================
+      // 🔥 BUSCA A IMAGEM DO ÍCONE COM 3 CAMADAS DE FALLBACK
+      // ============================================================
       let imageUrl = ach.iconUrl || null;
+      
+      // Se não tiver imagem no JSON, tenta via Steam API
       if (!imageUrl) {
+        console.log(`🔄 Buscando ícone via Steam API para: ${ach.name}`);
         try {
           imageUrl = await getAchievementImageUrl(appid, ach.name);
         } catch (e) {
-          console.warn(`⚠️ Erro ao buscar imagem para ${ach.name}:`, e.message);
+          console.log(`❌ Erro ao buscar imagem via API: ${e.message}`);
         }
       }
 
-      // Fallback: imagem genérica do jogo
+      // FALLBACK 1: Capa do jogo (se não encontrou o ícone)
       if (!imageUrl) {
+        console.log(`🔄 Usando capa do jogo como fallback para: ${ach.name}`);
         imageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
       }
+
+      // FALLBACK 2: Imagem genérica da Steam (se a capa também falhar)
+      // Vamos testar se a capa existe
+      if (imageUrl) {
+        try {
+          const test = await axios.head(imageUrl, { timeout: 3000 });
+          if (test.status !== 200) {
+            console.log(`⚠️ Capa do jogo não acessível, usando fallback genérico`);
+            imageUrl = 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png';
+          }
+        } catch (_) {
+          console.log(`⚠️ Erro ao testar capa do jogo, usando fallback genérico`);
+          imageUrl = 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png';
+        }
+      }
+
+      console.log(`✅ Imagem final para ${ach.name}: ${imageUrl}`);
 
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
@@ -1594,7 +1683,7 @@ client.on('interactionCreate', async (interaction) => {
         const selectedIndex = parseInt(i.values[0]);
         const ach = conquistasList[selectedIndex];
 
-        // Gerar embed com ícone
+        // Gerar embed com ícone (com 3 camadas de fallback)
         const { embed, videoLink } = await generateAchievementEmbed(ach);
 
         // Botão para voltar à lista
