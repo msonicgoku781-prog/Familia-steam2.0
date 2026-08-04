@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO ROBUSTA (COM LOGS DETALHADOS)
+// BOT STEAM FAMÍLIA - VERSÃO COMPLETA (CORRIGIDA)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -732,7 +732,7 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 10. VERIFICAÇÃO DE CONQUISTAS - CORRIGIDA PARA FAMILY SHARING (COM LOGS)
+// 10. VERIFICAÇÃO DE CONQUISTAS - CORRIGIDA (IGNORA ERRO 400)
 // ============================================================
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length) {
@@ -740,7 +740,11 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
     return;
   }
   
-  // 🔥 BUSCA O CANAL DE CONQUISTAS COM LOGS DETALHADOS
+  if (!ACHIEVEMENT_CHANNEL_ID) {
+    console.log(`⚠️ ACHIEVEMENT_CHANNEL_ID não definido. Pulando notificação.`);
+    return;
+  }
+  
   console.log(`🔍 [VERIFICAR] Procurando canal de conquistas: ${ACHIEVEMENT_CHANNEL_ID}`);
   let channel = client.channels.cache.get(ACHIEVEMENT_CHANNEL_ID);
   
@@ -750,7 +754,6 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       channel = await client.channels.fetch(ACHIEVEMENT_CHANNEL_ID);
       if (channel) {
         console.log(`✅ Canal encontrado via fetch: ${channel.name} (${channel.id})`);
-        // Coloca no cache para futuras referências
         client.channels.cache.set(channel.id, channel);
       }
     } catch (error) {
@@ -785,12 +788,23 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
     try {
       conquistas = await getPlayerAchievements(steamId, appid);
     } catch (e) {
+      // 🔥 SE DER ERRO 400, O JOGO NÃO TEM CONQUISTAS
+      if (e.response && e.response.status === 400) {
+        console.log(`ℹ️ ${gameName} não possui conquistas (ou não é suportado pela API). Ignorando.`);
+        if (!db.jogosSemConquistas) db.jogosSemConquistas = {};
+        db.jogosSemConquistas[appid] = { nome: gameName, data: new Date().toISOString(), motivo: 'sem_conquistas' };
+        await salvarDBNoCanal();
+        continue;
+      }
       console.log(`⚠️ Erro ao buscar conquistas de ${gameName}: ${e.message}`);
       continue;
     }
 
     if (!conquistas || conquistas.length === 0) {
       console.log(`ℹ️ ${gameName} não possui conquistas.`);
+      if (!db.jogosSemConquistas) db.jogosSemConquistas = {};
+      db.jogosSemConquistas[appid] = { nome: gameName, data: new Date().toISOString(), motivo: 'sem_conquistas' };
+      await salvarDBNoCanal();
       continue;
     }
 
@@ -872,7 +886,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 }
 
 // ============================================================
-// 11. checkAchievements - APENAS 6 JOGOS RECENTES (COM LOGS)
+// 11. checkAchievements - APENAS 6 JOGOS RECENTES
 // ============================================================
 async function checkAchievements() {
   console.log(`🔍 [checkAchievements] Verificando conquistas da família...`);
@@ -902,6 +916,11 @@ async function checkAchievements() {
         
         for (const game of recentGames) {
           const appid = game.appid;
+          // Verifica se o jogo já foi marcado como sem conquistas
+          if (db.jogosSemConquistas && db.jogosSemConquistas[appid]) {
+            console.log(`ℹ️ ${game.name || `App ${appid}`} já foi marcado como sem conquistas. Ignorando.`);
+            continue;
+          }
           const ultimaVerificacao = db.ultimaVerificacao?.[steamId]?.[appid] || 0;
           if (agora - ultimaVerificacao > INTERVALO_VERIFICACAO) {
             jogosParaVerificar.push(game);
@@ -1262,7 +1281,7 @@ const flagFile = path.join(__dirname, 'bot_started.flag');
 client.once('clientReady', async () => {
   console.log(`✅ Bot online como ${client.user.tag}`);
   console.log(`📋 Banco de dados armazenado como anexo no canal: <#${QUERO_CHANNEL}>`);
-  console.log(`📢 Canal de conquistas configurado: ${ACHIEVEMENT_CHANNEL_ID}`);
+  console.log(`📢 ACHIEVEMENT_CHANNEL_ID configurado: ${ACHIEVEMENT_CHANNEL_ID || 'NÃO DEFINIDO'}`);
 
   try {
     await inicializarDB();
@@ -1313,23 +1332,27 @@ client.once('clientReady', async () => {
       console.error('❌ Erro ao registrar comandos:', err);
     }
 
-    // 🔥 VERIFICA O CANAL DE CONQUISTAS NO INÍCIO
-    console.log(`🔍 [INICIO] Verificando canal de conquistas...`);
-    let testChannel = client.channels.cache.get(ACHIEVEMENT_CHANNEL_ID);
-    if (!testChannel) {
-      console.log(`⚠️ Canal ${ACHIEVEMENT_CHANNEL_ID} não encontrado no cache. Tentando fetch...`);
-      try {
-        testChannel = await client.channels.fetch(ACHIEVEMENT_CHANNEL_ID);
-        if (testChannel) {
-          console.log(`✅ Canal de conquistas encontrado via fetch: ${testChannel.name} (${testChannel.id})`);
-          client.channels.cache.set(testChannel.id, testChannel);
+    // 🔥 VERIFICA O CANAL DE CONQUISTAS (APENAS SE TIVER ID DEFINIDO)
+    if (ACHIEVEMENT_CHANNEL_ID) {
+      console.log(`🔍 [INICIO] Verificando canal de conquistas: ${ACHIEVEMENT_CHANNEL_ID}`);
+      let testChannel = client.channels.cache.get(ACHIEVEMENT_CHANNEL_ID);
+      if (!testChannel) {
+        console.log(`⚠️ Canal ${ACHIEVEMENT_CHANNEL_ID} não encontrado no cache. Tentando fetch...`);
+        try {
+          testChannel = await client.channels.fetch(ACHIEVEMENT_CHANNEL_ID);
+          if (testChannel) {
+            console.log(`✅ Canal de conquistas encontrado via fetch: ${testChannel.name} (${testChannel.id})`);
+            client.channels.cache.set(testChannel.id, testChannel);
+          }
+        } catch (error) {
+          console.error(`❌ Canal de conquistas NÃO encontrado: ${error.message}`);
+          console.log(`⚠️ As notificações de conquistas NÃO funcionarão!`);
         }
-      } catch (error) {
-        console.error(`❌ Canal de conquistas NÃO encontrado: ${error.message}`);
-        console.log(`⚠️ As notificações de conquistas NÃO funcionarão!`);
+      } else {
+        console.log(`✅ Canal de conquistas encontrado no cache: ${testChannel.name} (${testChannel.id})`);
       }
     } else {
-      console.log(`✅ Canal de conquistas encontrado no cache: ${testChannel.name} (${testChannel.id})`);
+      console.log(`⚠️ ACHIEVEMENT_CHANNEL_ID não definido. As notificações de conquistas NÃO funcionarão.`);
     }
 
     setInterval(checkAchievements, 30000);
@@ -1338,11 +1361,27 @@ client.once('clientReady', async () => {
     setInterval(verificarPromocoesQuero, 5 * 60 * 1000);
     console.log('🔄 Monitorando conquistas a cada 30s, novos jogos a cada 5min.');
 
-    if (!fs.existsSync(flagFile)) {
-      fs.writeFileSync(flagFile, Date.now().toString());
-      const dono = await client.users.fetch(DONO_ID);
-      await dono.send('🚀 Bot Steam Família está online! (Versão robusta)');
+    // 🔥 SÓ ENVIA MENSAGEM SE TIVER DONO_ID DEFINIDO (COM TRATAMENTO DE ERRO)
+    try {
+      if (!fs.existsSync(flagFile)) {
+        fs.writeFileSync(flagFile, Date.now().toString());
+        if (DONO_ID) {
+          try {
+            const dono = await client.users.fetch(DONO_ID);
+            await dono.send('🚀 Bot Steam Família está online! (Versão robusta)')
+              .catch(e => console.log(`⚠️ Não foi possível enviar DM para o dono: ${e.message}`));
+            console.log('✅ Mensagem de inicialização enviada ao dono.');
+          } catch (error) {
+            console.log(`⚠️ Não foi possível enviar mensagem ao dono: ${error.message}`);
+          }
+        }
+      } else {
+        console.log('ℹ️ Mensagem de inicialização já foi enviada anteriormente.');
+      }
+    } catch (error) {
+      console.log(`⚠️ Erro ao verificar flag: ${error.message}`);
     }
+
   } catch (err) {
     console.error('❌ ERRO FATAL:', err);
   }
