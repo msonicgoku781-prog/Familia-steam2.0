@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COMPLETA (FAMILY SHARING FIX)
+// BOT STEAM FAMÍLIA - VERSÃO COMPLETA (6 JOGOS RECENTES)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -743,16 +743,10 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   }
   if (!db.conquistas[steamId]) db.conquistas[steamId] = {};
 
-  // 🔥 REMOVE O FILTRO QUE BLOQUEIA JOGOS SEM CONQUISTAS
-  const jogosParaVerificar = gamesToCheck;
-  
-  if (jogosParaVerificar.length === 0) return;
-
-  for (const game of jogosParaVerificar) {
+  for (const game of gamesToCheck) {
     const appid = game.appid;
     const gameName = game.name || `Jogo ${appid}`;
     
-    // 🔥 VERIFICA SE O JOGO ESTÁ NA FAMÍLIA (para mostrar de quem é)
     let donoDoJogo = null;
     for (const [sid, jogos] of Object.entries(db.historicoJogos || {})) {
       if (jogos.includes(appid)) {
@@ -847,7 +841,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 }
 
 // ============================================================
-// 11. checkAchievements - CORRIGIDO PARA FAMILY SHARING
+// 11. checkAchievements - APENAS 6 JOGOS RECENTES
 // ============================================================
 async function checkAchievements() {
   console.log(`🔍 [checkAchievements] Verificando conquistas da família...`);
@@ -861,33 +855,42 @@ async function checkAchievements() {
         const discordId = member.discordId;
         const mention = `<@${discordId}>`;
 
-        const recentGames = await getRecentlyPlayedGames(steamId, 5);
+        // 🔥 PEGA APENAS OS 6 JOGOS RECENTES
+        const recentGames = await getRecentlyPlayedGames(steamId, 6);
         
         if (!recentGames || recentGames.length === 0) {
-          console.log(`ℹ️ ${userName} não tem jogos recentes.`);
+          console.log(`ℹ️ ${userName} - Nenhum jogo recente encontrado.`);
           continue;
         }
 
+        console.log(`📊 ${userName} - ${recentGames.length} jogos recentes encontrados`);
+
+        // 🔥 FILTRA JOGOS QUE NÃO FORAM VERIFICADOS NOS ÚLTIMOS 5 MINUTOS
         const jogosParaVerificar = [];
         const agora = Date.now();
+        const INTERVALO_VERIFICACAO = 5 * 60 * 1000; // 5 minutos
         
         for (const game of recentGames) {
           const appid = game.appid;
           const ultimaVerificacao = db.ultimaVerificacao?.[steamId]?.[appid] || 0;
-          if (agora - ultimaVerificacao > 300000) {
+          if (agora - ultimaVerificacao > INTERVALO_VERIFICACAO) {
             jogosParaVerificar.push(game);
           }
         }
 
         if (jogosParaVerificar.length === 0) {
-          console.log(`ℹ️ ${userName} - nenhum jogo novo para verificar.`);
+          console.log(`ℹ️ ${userName} - Todos os jogos recentes já foram verificados.`);
           continue;
         }
 
-        console.log(`📊 ${userName} - Verificando ${jogosParaVerificar.length} jogos recentes`);
+        console.log(`📊 ${userName} - Verificando ${jogosParaVerificar.length} jogos recentes:`);
+        for (const game of jogosParaVerificar) {
+          console.log(`   🎮 ${game.name || `App ${game.appid}`} (${game.appid})`);
+        }
 
         await verificarConquistas(steamId, jogosParaVerificar, mention, userName);
 
+        // Atualiza o timestamp
         if (!db.ultimaVerificacao) db.ultimaVerificacao = {};
         if (!db.ultimaVerificacao[steamId]) db.ultimaVerificacao[steamId] = {};
         for (const game of jogosParaVerificar) {
@@ -1290,7 +1293,7 @@ client.once('clientReady', async () => {
     if (!fs.existsSync(flagFile)) {
       fs.writeFileSync(flagFile, Date.now().toString());
       const dono = await client.users.fetch(DONO_ID);
-      await dono.send('🚀 Bot Steam Família está online! (Family Sharing fix)');
+      await dono.send('🚀 Bot Steam Família está online! (6 jogos recentes)');
     }
   } catch (err) {
     console.error('❌ ERRO FATAL:', err);
@@ -1624,7 +1627,7 @@ client.on('interactionCreate', async (interaction) => {
           return;
         }
 
-        // 🔥 BOTÃO DE VÍDEO - SILENCIOSO
+        // BOTÃO DE VÍDEO - SILENCIOSO
         if (i.customId.startsWith('video_')) {
           const videoData = videoLinksMap.get(i.customId);
           
@@ -1834,6 +1837,7 @@ client.on('interactionCreate', async (interaction) => {
 // ============================================================
 // 20. OUTROS COMANDOS
 // ============================================================
+// !resetranking
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
   if (message.content.toLowerCase() !== '!resetranking') return;
@@ -1858,6 +1862,7 @@ client.on('messageCreate', async (message) => {
   });
 });
 
+// /regras
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName === 'regras') {
