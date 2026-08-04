@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COMPLETA (CORRIGIDA)
+// BOT STEAM FAMÍLIA - CORRIGIDO (APENAS UM DB_FILE)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -82,7 +82,7 @@ const ACHIEVEMENT_EMOJI = '<:Trofeu:1525724119142891571>';
 console.log('🚀 [5] Constantes definidas.');
 
 // ============================================================
-// 4. BANCO DE DADOS (ANEXO NO CANAL PRIVADO)
+// 4. BANCO DE DADOS (ANEXO NO CANAL PRIVADO) - CORRIGIDO
 // ============================================================
 let db = null;
 let dbMessageId = null;
@@ -146,12 +146,43 @@ async function salvarDBNoCanal() {
     return false;
   }
   try {
+    // 🔥 BUSCA TODAS AS MENSAGENS DB_FILE E APAGA
+    const messages = await channel.messages.fetch({ limit: 100 });
+    const dbMessages = messages.filter(m => m.content === 'DB_FILE' && m.attachments.size > 0);
+    
+    // Apaga todas as mensagens DB_FILE antigas (exceto a atual se existir)
+    for (const [, msg] of dbMessages) {
+      if (msg.id !== dbMessageId) {
+        try {
+          await msg.delete();
+          console.log(`🗑️ Mensagem DB_FILE antiga deletada: ${msg.id}`);
+        } catch (e) {
+          console.log(`⚠️ Não foi possível deletar mensagem ${msg.id}: ${e.message}`);
+        }
+      }
+    }
+
+    // Se já tem uma mensagem, edita ela
     if (dbMessageId) {
       try {
         const antiga = await channel.messages.fetch(dbMessageId);
-        if (antiga) await antiga.delete();
-      } catch (_) {}
+        if (antiga) {
+          const jsonData = JSON.stringify(db, null, 2);
+          const buffer = Buffer.from(jsonData, 'utf-8');
+          const attachment = new AttachmentBuilder(buffer, { name: 'db.json' });
+          await antiga.edit({
+            content: 'DB_FILE',
+            files: [attachment]
+          });
+          console.log('✅ Banco de dados atualizado (mensagem editada)');
+          return true;
+        }
+      } catch (_) {
+        dbMessageId = null;
+      }
     }
+
+    // Cria uma nova mensagem
     const jsonData = JSON.stringify(db, null, 2);
     const buffer = Buffer.from(jsonData, 'utf-8');
     const attachment = new AttachmentBuilder(buffer, { name: 'db.json' });
@@ -160,6 +191,7 @@ async function salvarDBNoCanal() {
       files: [attachment]
     });
     dbMessageId = novaMsg.id;
+    console.log('✅ Banco de dados salvo (nova mensagem criada)');
     return true;
   } catch (e) {
     console.error('❌ Erro ao salvar banco no anexo:', e);
@@ -204,6 +236,9 @@ async function inicializarDB() {
   }
 }
 
+// ============================================================
+// 4.1 CACHE DE VÍDEOS - CORRIGIDO
+// ============================================================
 async function carregarVideoCache() {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
   if (!channel) return;
@@ -232,12 +267,43 @@ async function salvarVideoCache() {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
   if (!channel) return false;
   try {
+    // 🔥 BUSCA TODAS AS MENSAGENS VIDEO_CACHE E APAGA
+    const messages = await channel.messages.fetch({ limit: 100 });
+    const cacheMessages = messages.filter(m => m.content === 'VIDEO_CACHE' && m.attachments.size > 0);
+    
+    // Apaga todas as mensagens VIDEO_CACHE antigas (exceto a atual se existir)
+    for (const [, msg] of cacheMessages) {
+      if (msg.id !== videoCacheMessageId) {
+        try {
+          await msg.delete();
+          console.log(`🗑️ Mensagem VIDEO_CACHE antiga deletada: ${msg.id}`);
+        } catch (e) {
+          console.log(`⚠️ Não foi possível deletar mensagem ${msg.id}: ${e.message}`);
+        }
+      }
+    }
+
+    // Se já tem uma mensagem, edita ela
     if (videoCacheMessageId) {
       try {
         const antiga = await channel.messages.fetch(videoCacheMessageId);
-        if (antiga) await antiga.delete();
-      } catch (_) {}
+        if (antiga) {
+          const jsonData = JSON.stringify(videoCache, null, 2);
+          const buffer = Buffer.from(jsonData, 'utf-8');
+          const attachment = new AttachmentBuilder(buffer, { name: VIDEO_CACHE_FILENAME });
+          await antiga.edit({
+            content: 'VIDEO_CACHE',
+            files: [attachment]
+          });
+          console.log(`✅ Cache de vídeos atualizado (mensagem editada)`);
+          return true;
+        }
+      } catch (_) {
+        videoCacheMessageId = null;
+      }
     }
+
+    // Cria uma nova mensagem
     const jsonData = JSON.stringify(videoCache, null, 2);
     const buffer = Buffer.from(jsonData, 'utf-8');
     const attachment = new AttachmentBuilder(buffer, { name: VIDEO_CACHE_FILENAME });
@@ -246,7 +312,7 @@ async function salvarVideoCache() {
       files: [attachment]
     });
     videoCacheMessageId = novaMsg.id;
-    console.log(`✅ Cache de vídeos salvo: ${Object.keys(videoCache).length} vídeos`);
+    console.log(`✅ Cache de vídeos salvo (nova mensagem criada)`);
     return true;
   } catch (e) {
     console.error('❌ Erro ao salvar cache de vídeos:', e);
@@ -732,7 +798,7 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 10. VERIFICAÇÃO DE CONQUISTAS - CORRIGIDA (IGNORA ERRO 400)
+// 10. VERIFICAÇÃO DE CONQUISTAS
 // ============================================================
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length) {
@@ -788,7 +854,6 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
     try {
       conquistas = await getPlayerAchievements(steamId, appid);
     } catch (e) {
-      // 🔥 SE DER ERRO 400, O JOGO NÃO TEM CONQUISTAS
       if (e.response && e.response.status === 400) {
         console.log(`ℹ️ ${gameName} não possui conquistas (ou não é suportado pela API). Ignorando.`);
         if (!db.jogosSemConquistas) db.jogosSemConquistas = {};
@@ -886,7 +951,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 }
 
 // ============================================================
-// 11. checkAchievements - APENAS 6 JOGOS RECENTES
+// 11. checkAchievements
 // ============================================================
 async function checkAchievements() {
   console.log(`🔍 [checkAchievements] Verificando conquistas da família...`);
@@ -912,11 +977,10 @@ async function checkAchievements() {
 
         const jogosParaVerificar = [];
         const agora = Date.now();
-        const INTERVALO_VERIFICACAO = 5 * 60 * 1000; // 5 minutos
+        const INTERVALO_VERIFICACAO = 5 * 60 * 1000;
         
         for (const game of recentGames) {
           const appid = game.appid;
-          // Verifica se o jogo já foi marcado como sem conquistas
           if (db.jogosSemConquistas && db.jogosSemConquistas[appid]) {
             console.log(`ℹ️ ${game.name || `App ${appid}`} já foi marcado como sem conquistas. Ignorando.`);
             continue;
@@ -1332,7 +1396,6 @@ client.once('clientReady', async () => {
       console.error('❌ Erro ao registrar comandos:', err);
     }
 
-    // 🔥 VERIFICA O CANAL DE CONQUISTAS (APENAS SE TIVER ID DEFINIDO)
     if (ACHIEVEMENT_CHANNEL_ID) {
       console.log(`🔍 [INICIO] Verificando canal de conquistas: ${ACHIEVEMENT_CHANNEL_ID}`);
       let testChannel = client.channels.cache.get(ACHIEVEMENT_CHANNEL_ID);
@@ -1361,7 +1424,6 @@ client.once('clientReady', async () => {
     setInterval(verificarPromocoesQuero, 5 * 60 * 1000);
     console.log('🔄 Monitorando conquistas a cada 30s, novos jogos a cada 5min.');
 
-    // 🔥 SÓ ENVIA MENSAGEM SE TIVER DONO_ID DEFINIDO (COM TRATAMENTO DE ERRO)
     try {
       if (!fs.existsSync(flagFile)) {
         fs.writeFileSync(flagFile, Date.now().toString());
@@ -1876,7 +1938,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 19. FALLBACK PARA BOTÕES - SILENCIOSO
+// 19. FALLBACK PARA BOTÕES
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
