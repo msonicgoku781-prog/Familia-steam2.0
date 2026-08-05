@@ -850,7 +850,7 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 10. VERIFICAÇÃO DE CONQUISTAS (VERSÃO ATUALIZADA)
+// 10. VERIFICAÇÃO DE CONQUISTAS (VERSÃO CORRIGIDA COM ÍCONE)
 // ============================================================
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length) {
@@ -969,19 +969,22 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       const faltam = totalJogo - progressoAtual;
       const nomeBonito = await getAchievementDisplayName(appid, ach.apiname);
 
-      // Busca a imagem da conquista
-      let imageUrl = null;
+      // 🔥 BUSCA O ÍCONE DA CONQUISTA (IGUAL AO /conquista)
+      let iconUrl = null;
       const iconName = iconMap[ach.apiname];
       if (iconName) {
-        imageUrl = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/${appid}/${iconName}`;
+        iconUrl = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/${appid}/${iconName}`;
+        console.log(`🖼️ Ícone da conquista encontrado: ${iconUrl}`);
       }
 
-      // Se não tiver ícone da conquista, usa a imagem do jogo
-      if (!imageUrl) {
+      // Se não tiver ícone da conquista, usa a imagem do jogo como fallback
+      let imageUrl = iconUrl;
+      if (!imageUrl || imageUrl.includes('null') || imageUrl.includes('undefined')) {
         try {
           const detalhes = await getGameDetails(appid);
           if (detalhes?.header_image) {
             imageUrl = detalhes.header_image;
+            console.log(`🖼️ Usando imagem do jogo: ${imageUrl}`);
           } else {
             imageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
           }
@@ -1009,6 +1012,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
         rarezaText = ' (Rara)';
       }
 
+      // 🔥 USA setImage (imagem grande) em vez de setThumbnail
       const embed = new EmbedBuilder()
         .setColor(percent > 0 && percent <= 5 ? 0xFFD700 : 0x00AE86)
         .setTitle(`${ACHIEVEMENT_EMOJI} ${userName} desbloqueou uma conquista!`)
@@ -1019,7 +1023,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
           { name: '📊 Progresso', value: `${progressoAtual}/${totalJogo} ${faltam > 0 ? `(faltam ${faltam})` : '🎉 COMPLETO!'}`, inline: true },
           { name: '📈 Raridade', value: `${percentText}${rarezaText}`, inline: true }
         )
-        .setThumbnail(imageUrl)
+        .setImage(imageUrl)  // 🔥 MUDANÇA: setImage em vez de setThumbnail
         .setFooter({ 
           text: `🏆 ${userName} • ${gameName} • ${new Date().toLocaleTimeString()}`,
           iconURL: client.user.displayAvatarURL()
@@ -1028,7 +1032,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 
       try {
         await channel.send({ embeds: [embed] });
-        console.log(`✅ Mensagem de conquista enviada no canal ${channel.name}`);
+        console.log(`✅ Mensagem de conquista enviada com imagem: ${imageUrl}`);
       } catch (error) {
         console.error(`❌ Erro ao enviar mensagem no canal ${channel.name}:`, error.message);
       }
