@@ -2,6 +2,13 @@
 // BOT STEAM FAMÍLIA - VERSÃO COMPLETA (12 JOGOS)
 // ============================================================
 
+console.log('========================================');
+console.log('🚀 BOT STEAM FAMÍLIA - INICIANDO');
+console.log(`📅 ${new Date().toLocaleString()}`);
+console.log(`🆔 Node.js: ${process.version}`);
+console.log(`📁 Diretório: ${__dirname}`);
+console.log('========================================');
+
 console.log('🚀 [1] Iniciando o script...');
 
 require('dotenv').config();
@@ -433,6 +440,11 @@ async function fetchSteam(url, params = {}, retries = 3) {
       }
       return resp.data;
     } catch (e) {
+      if (e.response && e.response.status === 429) {
+        console.log(`⏱️ [fetchSteam] Rate limit detectado, tentativa ${i+1}`);
+        await new Promise(r => setTimeout(r, 5000 * (i + 1)));
+        continue;
+      }
       console.log(`⏱️ [fetchSteam] Tentativa ${i+1} falhou: ${e.message}`);
       if (i === retries - 1) throw e;
       await new Promise(r => setTimeout(r, 2000 * (i + 1)));
@@ -838,7 +850,7 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 10. VERIFICAÇÃO DE CONQUISTAS
+// 10. VERIFICAÇÃO DE CONQUISTAS (VERSÃO ATUALIZADA)
 // ============================================================
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length) {
@@ -876,19 +888,8 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   for (const game of gamesToCheck) {
     const appid = game.appid;
     const gameName = game.name || `Jogo ${appid}`;
-    
-    let donoDoJogo = null;
-    for (const [sid, jogos] of Object.entries(db.historicoJogos || {})) {
-      if (jogos.includes(appid)) {
-        const member = MEMBROS[sid];
-        if (member) {
-          donoDoJogo = member.nome;
-          break;
-        }
-      }
-    }
 
-    console.log(`🔍 Verificando conquistas de "${gameName}" (${appid}) para ${userName}${donoDoJogo ? ` (dono: ${donoDoJogo})` : ''}`);
+    console.log(`🔍 Verificando conquistas de "${gameName}" (${appid}) para ${userName}`);
 
     let schemaData = null;
     try {
@@ -942,8 +943,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       db.conquistas[steamId][appid] = { 
         total, 
         nomes: desbloqueadas.map(c => c.apiname), 
-        totalJogo,
-        dono: donoDoJogo
+        totalJogo
       };
       await salvarDBNoCanal();
       console.log(`📊 Primeira verificação de ${gameName}: ${total}/${totalJogo} conquistas`);
@@ -969,28 +969,35 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       const faltam = totalJogo - progressoAtual;
       const nomeBonito = await getAchievementDisplayName(appid, ach.apiname);
 
+      // Busca a imagem da conquista
       let imageUrl = null;
       const iconName = iconMap[ach.apiname];
       if (iconName) {
         imageUrl = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/${appid}/${iconName}`;
       }
-      
+
+      // Se não tiver ícone da conquista, usa a imagem do jogo
       if (!imageUrl) {
-        const detalhes = await getGameDetails(appid);
-        if (detalhes?.header_image) {
-          imageUrl = detalhes.header_image;
-        } else {
+        try {
+          const detalhes = await getGameDetails(appid);
+          if (detalhes?.header_image) {
+            imageUrl = detalhes.header_image;
+          } else {
+            imageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
+          }
+        } catch (e) {
+          console.log(`⚠️ Erro ao buscar imagem do jogo: ${e.message}`);
           imageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
         }
       }
 
+      // Verifica se a URL é válida
+      if (!imageUrl || imageUrl.includes('null') || imageUrl.includes('undefined')) {
+        imageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
+      }
+
       const percent = ach.percent || 0;
       const percentText = percent > 0 ? `${percent.toFixed(1)}% dos jogadores` : 'Dados indisponíveis';
-
-      let mensagemDono = '';
-      if (donoDoJogo && donoDoJogo !== userName) {
-        mensagemDono = ` (via Family Sharing - dono: ${donoDoJogo})`;
-      }
 
       let rarezaEmoji = '';
       let rarezaText = '';
@@ -1004,7 +1011,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 
       const embed = new EmbedBuilder()
         .setColor(percent > 0 && percent <= 5 ? 0xFFD700 : 0x00AE86)
-        .setTitle(`${ACHIEVEMENT_EMOJI} ${userName} desbloqueou uma conquista!${mensagemDono}`)
+        .setTitle(`${ACHIEVEMENT_EMOJI} ${userName} desbloqueou uma conquista!`)
         .setDescription(`**${nomeBonito}** ${rarezaEmoji}`)
         .addFields(
           { name: '🎮 Jogo', value: gameName, inline: true },
@@ -1013,22 +1020,25 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
           { name: '📈 Raridade', value: `${percentText}${rarezaText}`, inline: true }
         )
         .setThumbnail(imageUrl)
-        .setFooter({ text: `+${novas.length} nova(s) conquista(s) • ${new Date().toLocaleTimeString()}` })
+        .setFooter({ 
+          text: `🏆 ${userName} • ${gameName} • ${new Date().toLocaleTimeString()}`,
+          iconURL: client.user.displayAvatarURL()
+        })
         .setTimestamp();
 
       try {
         await channel.send({ embeds: [embed] });
-        console.log(`✅ Mensagem de conquista enviada no canal ${channel.name} com ícone`);
+        console.log(`✅ Mensagem de conquista enviada no canal ${channel.name}`);
       } catch (error) {
         console.error(`❌ Erro ao enviar mensagem no canal ${channel.name}:`, error.message);
       }
     }
 
+    // Atualiza o banco de dados
     db.conquistas[steamId][appid] = { 
       total, 
       nomes: desbloqueadas.map(c => c.apiname), 
-      totalJogo,
-      dono: donoDoJogo
+      totalJogo
     };
     await salvarDBNoCanal();
   }
@@ -1067,7 +1077,6 @@ async function checkAchievements() {
 
         console.log(`📊 ${userName} - ${recentGames.length} jogos recentes encontrados:`);
         for (const game of recentGames) {
-          // 🔥 FORMATAR DATA DE FORMA LEGÍVEL
           let lastPlayed = 'N/A';
           if (game.rtime_last_played) {
             const date = new Date(game.rtime_last_played * 1000);
@@ -1410,6 +1419,19 @@ const client = new Client({
 
 console.log('🚀 [13] Cliente Discord criado.');
 
+// Eventos de conexão
+client.on('disconnect', (event) => {
+  console.log(`🔌 Desconectado: ${event.reason || 'Motivo desconhecido'}`);
+});
+
+client.on('reconnecting', () => {
+  console.log('🔄 Tentando reconectar...');
+});
+
+client.on('error', (error) => {
+  console.error('❌ Erro no cliente Discord:', error.message);
+});
+
 // ============================================================
 // 16. CARREGAR MAPEAMENTO DE CONQUISTAS (MEGA MAN X)
 // ============================================================
@@ -1523,6 +1545,7 @@ client.once('clientReady', async () => {
       console.error('❌ Erro ao registrar comandos:', err);
     }
 
+    // Verificação do canal de conquistas
     if (ACHIEVEMENT_CHANNEL_ID) {
       console.log(`🔍 [INICIO] Verificando canal de conquistas: ${ACHIEVEMENT_CHANNEL_ID}`);
       let testChannel = client.channels.cache.get(ACHIEVEMENT_CHANNEL_ID);
@@ -1577,7 +1600,62 @@ client.once('clientReady', async () => {
 });
 
 // ============================================================
-// 18. COMANDO /conquista
+// 18. COMANDO /dbstatus
+// ============================================================
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+  
+  if (interaction.commandName === 'dbstatus') {
+    if (interaction.user.id !== DONO_ID) {
+      await interaction.reply({ content: '❌ Apenas o dono pode usar este comando.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    
+    const status = {
+      database: {
+        tamanho: JSON.stringify(db).length,
+        ranking: Object.keys(db.ranking || {}).length,
+        conquistas: Object.keys(db.conquistas || {}).length,
+        historico: Object.keys(db.historicoJogos || {}).length,
+        version: db.rankingVersion
+      },
+      cache: {
+        videos: Object.keys(videoCache).length,
+        traducoes: translationCache.size
+      },
+      membros: Object.keys(MEMBROS).length,
+      steamIds: STEAM_IDS_ARRAY.length,
+      canais: {
+        notificacoes: CHANNEL_ID ? '✅' : '❌',
+        ranking: RANKING_CHANNEL_ID ? '✅' : '❌',
+        conquistas: ACHIEVEMENT_CHANNEL_ID ? '✅' : '❌',
+        quero: QUERO_CHANNEL_ID ? '✅' : '❌',
+        regras: RULES_CHANNEL_ID ? '✅' : '❌'
+      }
+    };
+    
+    const embed = new EmbedBuilder()
+      .setColor(0x00AE86)
+      .setTitle('📊 Status do Banco de Dados')
+      .addFields(
+        { name: '📦 Tamanho', value: `${(status.database.tamanho / 1024).toFixed(2)} KB`, inline: true },
+        { name: '🏆 Ranking', value: `${status.database.ranking} membros`, inline: true },
+        { name: '🎯 Conquistas', value: `${status.database.conquistas} registros`, inline: true },
+        { name: '🎮 Histórico', value: `${status.database.historico} membros`, inline: true },
+        { name: '📚 Versão', value: `${status.database.version}`, inline: true },
+        { name: '🎬 Vídeos cache', value: `${status.cache.videos}`, inline: true },
+        { name: '🌐 Traduções', value: `${status.cache.traducoes}`, inline: true },
+        { name: '👥 Membros', value: `${status.membros}`, inline: true },
+        { name: '🔄 Steam IDs', value: `${status.steamIds}`, inline: true }
+      )
+      .setTimestamp();
+      
+    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+  }
+});
+
+// ============================================================
+// 19. COMANDO /conquista
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -1854,7 +1932,7 @@ client.on('interactionCreate', async (interaction) => {
       if (usuarioTemJogo) {
         mensagemAcesso = `🎮 Você possui **${jogoInfo.nome}**`;
       } else {
-        mensagemAcesso = `🎮 **${jogoInfo.nome}** está disponível via Family Sharing (dono: ${nomesDonos})`;
+        mensagemAcesso = `🎮 **${jogoInfo.nome}** está disponível via Family Sharing`;
       }
 
       let descricaoResumo = `${mensagemAcesso}\n\n`;
@@ -2065,7 +2143,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 19. FALLBACK PARA BOTÕES
+// 20. FALLBACK PARA BOTÕES
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
@@ -2107,7 +2185,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 20. OUTROS COMANDOS
+// 21. OUTROS COMANDOS
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
@@ -2147,7 +2225,29 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 21. LOGIN
+// 22. HEALTH CHECK PARA RAILWAY
+// ============================================================
+if (process.env.PORT) {
+  try {
+    const express = require('express');
+    const app = express();
+    app.get('/health', (req, res) => {
+      res.status(200).json({ 
+        status: 'online', 
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+      });
+    });
+    app.listen(process.env.PORT, () => {
+      console.log(`🌐 Health check disponível na porta ${process.env.PORT}`);
+    });
+  } catch (e) {
+    console.log('ℹ️ Express não disponível para health check');
+  }
+}
+
+// ============================================================
+// 23. LOGIN
 // ============================================================
 console.log('🔑 Tentando login...');
 client.login(DISCORD_TOKEN)
