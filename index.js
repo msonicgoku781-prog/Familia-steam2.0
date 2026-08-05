@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - TODOS OS JOGOS RECENTES
+// BOT STEAM FAMÍLIA - LIMITE PERSONALIZADO POR USUÁRIO
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -838,7 +838,7 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 10. VERIFICAÇÃO DE CONQUISTAS - COM ÍCONES E PORCENTAGEM
+// 10. VERIFICAÇÃO DE CONQUISTAS
 // ============================================================
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length) {
@@ -890,7 +890,6 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 
     console.log(`🔍 Verificando conquistas de "${gameName}" (${appid}) para ${userName}${donoDoJogo ? ` (dono: ${donoDoJogo})` : ''}`);
 
-    // Busca o schema do jogo para obter os ícones
     let schemaData = null;
     try {
       const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
@@ -970,7 +969,6 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       const faltam = totalJogo - progressoAtual;
       const nomeBonito = await getAchievementDisplayName(appid, ach.apiname);
 
-      // Busca o ícone da conquista
       let imageUrl = null;
       const iconName = iconMap[ach.apiname];
       if (iconName) {
@@ -1037,7 +1035,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 }
 
 // ============================================================
-// 11. checkAchievements - TODOS OS JOGOS RECENTES
+// 11. checkAchievements - LIMITE PERSONALIZADO POR USUÁRIO
 // ============================================================
 async function checkAchievements() {
   console.log(`🔍 [checkAchievements] Verificando conquistas da família...`);
@@ -1051,8 +1049,16 @@ async function checkAchievements() {
         const discordId = member.discordId;
         const mention = `<@${discordId}>`;
 
-        console.log(`📊 [${userName}] Buscando TODOS os jogos recentes...`);
-        const recentGames = await getRecentlyPlayedGames(steamId, 999);
+        // 🔥 DEFINE O LIMITE POR USUÁRIO
+        let limit = 999; // Padrão: todos os jogos recentes
+        if (userName === 'Gardemi') {
+          limit = 6; // Gardemi: apenas 6 jogos
+          console.log(`📊 [${userName}] Buscando APENAS 6 jogos recentes (limite personalizado)...`);
+        } else {
+          console.log(`📊 [${userName}] Buscando TODOS os jogos recentes...`);
+        }
+
+        const recentGames = await getRecentlyPlayedGames(steamId, limit);
         
         if (!recentGames || recentGames.length === 0) {
           console.log(`ℹ️ ${userName} - Nenhum jogo recente encontrado.`);
@@ -1530,7 +1536,7 @@ client.once('clientReady', async () => {
         if (DONO_ID) {
           try {
             const dono = await client.users.fetch(DONO_ID);
-            await dono.send('🚀 Bot Steam Família está online! (Todos os jogos recentes)')
+            await dono.send('🚀 Bot Steam Família está online! (Limite personalizado)')
               .catch(e => console.log(`⚠️ Não foi possível enviar DM para o dono: ${e.message}`));
             console.log('✅ Mensagem de inicialização enviada ao dono.');
           } catch (error) {
@@ -1550,7 +1556,7 @@ client.once('clientReady', async () => {
 });
 
 // ============================================================
-// 18. COMANDO /conquista (RESUMIDO)
+// 18. COMANDO /conquista
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
