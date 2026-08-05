@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - CORRIGIDO (APENAS UM DB_FILE)
+// BOT STEAM FAMÍLIA - VERSÃO COMPLETA (COM ÍCONES E PORCENTAGEM)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -82,7 +82,7 @@ const ACHIEVEMENT_EMOJI = '<:Trofeu:1525724119142891571>';
 console.log('🚀 [5] Constantes definidas.');
 
 // ============================================================
-// 4. BANCO DE DADOS (ANEXO NO CANAL PRIVADO) - CORRIGIDO
+// 4. BANCO DE DADOS (ANEXO NO CANAL PRIVADO)
 // ============================================================
 let db = null;
 let dbMessageId = null;
@@ -146,11 +146,10 @@ async function salvarDBNoCanal() {
     return false;
   }
   try {
-    // 🔥 BUSCA TODAS AS MENSAGENS DB_FILE E APAGA
+    // Busca todas as mensagens DB_FILE e apaga
     const messages = await channel.messages.fetch({ limit: 100 });
     const dbMessages = messages.filter(m => m.content === 'DB_FILE' && m.attachments.size > 0);
     
-    // Apaga todas as mensagens DB_FILE antigas (exceto a atual se existir)
     for (const [, msg] of dbMessages) {
       if (msg.id !== dbMessageId) {
         try {
@@ -162,7 +161,6 @@ async function salvarDBNoCanal() {
       }
     }
 
-    // Se já tem uma mensagem, edita ela
     if (dbMessageId) {
       try {
         const antiga = await channel.messages.fetch(dbMessageId);
@@ -182,7 +180,6 @@ async function salvarDBNoCanal() {
       }
     }
 
-    // Cria uma nova mensagem
     const jsonData = JSON.stringify(db, null, 2);
     const buffer = Buffer.from(jsonData, 'utf-8');
     const attachment = new AttachmentBuilder(buffer, { name: 'db.json' });
@@ -237,7 +234,7 @@ async function inicializarDB() {
 }
 
 // ============================================================
-// 4.1 CACHE DE VÍDEOS - CORRIGIDO
+// 4.1 CACHE DE VÍDEOS
 // ============================================================
 async function carregarVideoCache() {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
@@ -267,11 +264,9 @@ async function salvarVideoCache() {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
   if (!channel) return false;
   try {
-    // 🔥 BUSCA TODAS AS MENSAGENS VIDEO_CACHE E APAGA
     const messages = await channel.messages.fetch({ limit: 100 });
     const cacheMessages = messages.filter(m => m.content === 'VIDEO_CACHE' && m.attachments.size > 0);
     
-    // Apaga todas as mensagens VIDEO_CACHE antigas (exceto a atual se existir)
     for (const [, msg] of cacheMessages) {
       if (msg.id !== videoCacheMessageId) {
         try {
@@ -283,7 +278,6 @@ async function salvarVideoCache() {
       }
     }
 
-    // Se já tem uma mensagem, edita ela
     if (videoCacheMessageId) {
       try {
         const antiga = await channel.messages.fetch(videoCacheMessageId);
@@ -303,7 +297,6 @@ async function salvarVideoCache() {
       }
     }
 
-    // Cria uma nova mensagem
     const jsonData = JSON.stringify(videoCache, null, 2);
     const buffer = Buffer.from(jsonData, 'utf-8');
     const attachment = new AttachmentBuilder(buffer, { name: VIDEO_CACHE_FILENAME });
@@ -624,6 +617,54 @@ async function traduzirTexto(texto, targetLang = 'pt') {
 console.log('🚀 [8] Funções da Steam API carregadas.');
 
 // ============================================================
+// 6.1 FUNÇÃO PARA BUSCAR CONQUISTAS COM PORCENTAGEM
+// ============================================================
+async function getPlayerAchievementsWithPercent(steamId, appId) {
+  try {
+    const playerData = await fetchSteam(
+      'https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/',
+      { steamid: steamId, appid: appId, format: 'json' }
+    );
+    
+    if (!playerData?.playerstats?.achievements) {
+      return null;
+    }
+
+    let globalPercentMap = {};
+    try {
+      const globalData = await fetchSteam(
+        'https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/',
+        { gameid: appId, format: 'json' }
+      );
+      if (globalData?.achievementpercentages?.achievements) {
+        for (const ach of globalData.achievementpercentages.achievements) {
+          globalPercentMap[ach.name] = parseFloat(ach.percent);
+        }
+      }
+    } catch (e) {
+      console.log(`ℹ️ Não foi possível buscar porcentagens globais para ${appId}`);
+    }
+
+    const achievements = playerData.playerstats.achievements.map(ach => {
+      const percent = globalPercentMap[ach.apiname] || 0;
+      return {
+        ...ach,
+        percent: percent,
+        percentFormatado: percent > 0 ? `${percent.toFixed(1)}%` : 'N/A'
+      };
+    });
+
+    return {
+      achievements: achievements,
+      gameName: playerData.playerstats.gameName || `Jogo ${appId}`
+    };
+  } catch (error) {
+    console.error(`❌ Erro ao buscar conquistas com porcentagem:`, error.message);
+    return null;
+  }
+}
+
+// ============================================================
 // 7. COMPATIBILIDADE
 // ============================================================
 const JOGOS_INCOMPATIVEIS = {
@@ -798,7 +839,7 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 10. VERIFICAÇÃO DE CONQUISTAS
+// 10. VERIFICAÇÃO DE CONQUISTAS - COM ÍCONES E PORCENTAGEM
 // ============================================================
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length) {
@@ -850,9 +891,28 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 
     console.log(`🔍 Verificando conquistas de "${gameName}" (${appid}) para ${userName}${donoDoJogo ? ` (dono: ${donoDoJogo})` : ''}`);
 
-    let conquistas;
+    // Busca o schema do jogo para obter os ícones
+    let schemaData = null;
     try {
-      conquistas = await getPlayerAchievements(steamId, appid);
+      const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
+      const params = { key: STEAM_KEY, appid: appid, l: 'portuguese' };
+      schemaData = await fetchSteam(url, params, 2);
+    } catch (e) {
+      console.log(`⚠️ Erro ao buscar schema do jogo ${gameName}: ${e.message}`);
+    }
+
+    const iconMap = {};
+    if (schemaData?.game?.availableGameStats?.achievements) {
+      for (const ach of schemaData.game.availableGameStats.achievements) {
+        if (ach.icon) {
+          iconMap[ach.name] = ach.icon;
+        }
+      }
+    }
+
+    let conquistasData;
+    try {
+      conquistasData = await getPlayerAchievementsWithPercent(steamId, appid);
     } catch (e) {
       if (e.response && e.response.status === 400) {
         console.log(`ℹ️ ${gameName} não possui conquistas (ou não é suportado pela API). Ignorando.`);
@@ -865,7 +925,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       continue;
     }
 
-    if (!conquistas || conquistas.length === 0) {
+    if (!conquistasData?.achievements || conquistasData.achievements.length === 0) {
       console.log(`ℹ️ ${gameName} não possui conquistas.`);
       if (!db.jogosSemConquistas) db.jogosSemConquistas = {};
       db.jogosSemConquistas[appid] = { nome: gameName, data: new Date().toISOString(), motivo: 'sem_conquistas' };
@@ -873,6 +933,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       continue;
     }
 
+    const conquistas = conquistasData.achievements;
     const desbloqueadas = conquistas.filter(c => c.achieved === 1);
     const total = desbloqueadas.length;
     const totalJogo = conquistas.length;
@@ -910,31 +971,57 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       const faltam = totalJogo - progressoAtual;
       const nomeBonito = await getAchievementDisplayName(appid, ach.apiname);
 
+      // Busca o ícone da conquista
+      let imageUrl = null;
+      const iconName = iconMap[ach.apiname];
+      if (iconName) {
+        imageUrl = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/${appid}/${iconName}`;
+      }
+      
+      if (!imageUrl) {
+        const detalhes = await getGameDetails(appid);
+        if (detalhes?.header_image) {
+          imageUrl = detalhes.header_image;
+        } else {
+          imageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
+        }
+      }
+
+      const percent = ach.percent || 0;
+      const percentText = percent > 0 ? `${percent.toFixed(1)}% dos jogadores` : 'Dados indisponíveis';
+
       let mensagemDono = '';
       if (donoDoJogo && donoDoJogo !== userName) {
         mensagemDono = ` (via Family Sharing - dono: ${donoDoJogo})`;
       }
 
+      let rarezaEmoji = '';
+      let rarezaText = '';
+      if (percent > 0 && percent <= 5) {
+        rarezaEmoji = '💎';
+        rarezaText = ' (RARÍSSIMA!)';
+      } else if (percent > 5 && percent <= 15) {
+        rarezaEmoji = '🌟';
+        rarezaText = ' (Rara)';
+      }
+
       const embed = new EmbedBuilder()
-        .setColor(0xFFD700)
+        .setColor(percent > 0 && percent <= 5 ? 0xFFD700 : 0x00AE86)
         .setTitle(`${ACHIEVEMENT_EMOJI} ${userName} desbloqueou uma conquista!${mensagemDono}`)
-        .setDescription(`**${nomeBonito}**`)
+        .setDescription(`**${nomeBonito}** ${rarezaEmoji}`)
         .addFields(
           { name: '🎮 Jogo', value: gameName, inline: true },
           { name: '👤 Jogador', value: mention, inline: true },
-          { name: '📊 Progresso', value: `${progressoAtual}/${totalJogo} ${faltam > 0 ? `(faltam ${faltam})` : '🎉 COMPLETO!'}`, inline: true }
+          { name: '📊 Progresso', value: `${progressoAtual}/${totalJogo} ${faltam > 0 ? `(faltam ${faltam})` : '🎉 COMPLETO!'}`, inline: true },
+          { name: '📈 Raridade', value: `${percentText}${rarezaText}`, inline: true }
         )
+        .setThumbnail(imageUrl)
         .setFooter({ text: `+${novas.length} nova(s) conquista(s) • ${new Date().toLocaleTimeString()}` })
         .setTimestamp();
 
-      const detalhes = await getGameDetails(appid);
-      if (detalhes?.header_image) {
-        embed.setThumbnail(detalhes.header_image);
-      }
-
       try {
         await channel.send({ embeds: [embed] });
-        console.log(`✅ Mensagem de conquista enviada no canal ${channel.name}`);
+        console.log(`✅ Mensagem de conquista enviada no canal ${channel.name} com ícone`);
       } catch (error) {
         console.error(`❌ Erro ao enviar mensagem no canal ${channel.name}:`, error.message);
       }
@@ -1430,7 +1517,7 @@ client.once('clientReady', async () => {
         if (DONO_ID) {
           try {
             const dono = await client.users.fetch(DONO_ID);
-            await dono.send('🚀 Bot Steam Família está online! (Versão robusta)')
+            await dono.send('🚀 Bot Steam Família está online! (Com ícones e porcentagem)')
               .catch(e => console.log(`⚠️ Não foi possível enviar DM para o dono: ${e.message}`));
             console.log('✅ Mensagem de inicialização enviada ao dono.');
           } catch (error) {
@@ -1450,7 +1537,7 @@ client.once('clientReady', async () => {
 });
 
 // ============================================================
-// 18. COMANDO /conquista
+// 18. COMANDO /conquista (RESUMIDO - MANTENDO AS FUNCIONALIDADES)
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -1612,6 +1699,7 @@ client.on('interactionCreate', async (interaction) => {
       const usuarioTemJogo = donosDoJogo.some(d => d.steamId === userSteamId);
       const nomesDonos = donosDoJogo.map(d => d.nome).join(', ');
 
+      // Função para gerar embed da conquista
       async function generateAchievementEmbed(ach, index) {
         let imageUrl = ach.icon;
         if (imageUrl && !imageUrl.startsWith('http')) {
