@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - VERSÃO COMPLETA (COM ÍCONES E PORCENTAGEM)
+// BOT STEAM FAMÍLIA - TODOS OS JOGOS RECENTES
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -146,7 +146,6 @@ async function salvarDBNoCanal() {
     return false;
   }
   try {
-    // Busca todas as mensagens DB_FILE e apaga
     const messages = await channel.messages.fetch({ limit: 100 });
     const dbMessages = messages.filter(m => m.content === 'DB_FILE' && m.attachments.size > 0);
     
@@ -1038,7 +1037,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 }
 
 // ============================================================
-// 11. checkAchievements
+// 11. checkAchievements - TODOS OS JOGOS RECENTES
 // ============================================================
 async function checkAchievements() {
   console.log(`🔍 [checkAchievements] Verificando conquistas da família...`);
@@ -1052,15 +1051,19 @@ async function checkAchievements() {
         const discordId = member.discordId;
         const mention = `<@${discordId}>`;
 
-        console.log(`📊 [${userName}] Buscando jogos recentes...`);
-        const recentGames = await getRecentlyPlayedGames(steamId, 6);
+        console.log(`📊 [${userName}] Buscando TODOS os jogos recentes...`);
+        const recentGames = await getRecentlyPlayedGames(steamId, 999);
         
         if (!recentGames || recentGames.length === 0) {
           console.log(`ℹ️ ${userName} - Nenhum jogo recente encontrado.`);
           continue;
         }
 
-        console.log(`📊 ${userName} - ${recentGames.length} jogos recentes encontrados`);
+        console.log(`📊 ${userName} - ${recentGames.length} jogos recentes encontrados:`);
+        for (const game of recentGames) {
+          const lastPlayed = game.rtime_last_played ? new Date(game.rtime_last_played * 1000).toLocaleString() : 'N/A';
+          console.log(`   🎮 ${game.name || `App ${game.appid}`} (${game.appid}) - Última vez: ${lastPlayed}`);
+        }
 
         const jogosParaVerificar = [];
         const agora = Date.now();
@@ -1068,18 +1071,28 @@ async function checkAchievements() {
         
         for (const game of recentGames) {
           const appid = game.appid;
+          
           if (db.jogosSemConquistas && db.jogosSemConquistas[appid]) {
             console.log(`ℹ️ ${game.name || `App ${appid}`} já foi marcado como sem conquistas. Ignorando.`);
             continue;
           }
+          
           const ultimaVerificacao = db.ultimaVerificacao?.[steamId]?.[appid] || 0;
+          const tempoDesdeUltimaVerificacao = (agora - ultimaVerificacao) / 1000 / 60;
+          
+          console.log(`   ⏱️ ${game.name || `App ${appid}`}: Última verificação há ${tempoDesdeUltimaVerificacao.toFixed(1)} minutos`);
+          
           if (agora - ultimaVerificacao > INTERVALO_VERIFICACAO) {
             jogosParaVerificar.push(game);
+            console.log(`   ✅ Será verificado agora`);
+          } else {
+            const tempoRestante = ((INTERVALO_VERIFICACAO - (agora - ultimaVerificacao)) / 1000 / 60);
+            console.log(`   ⏳ Aguardando ${tempoRestante.toFixed(1)} minutos para próxima verificação`);
           }
         }
 
         if (jogosParaVerificar.length === 0) {
-          console.log(`ℹ️ ${userName} - Todos os jogos recentes já foram verificados.`);
+          console.log(`ℹ️ ${userName} - Todos os jogos recentes já foram verificados recentemente.`);
           continue;
         }
 
@@ -1517,7 +1530,7 @@ client.once('clientReady', async () => {
         if (DONO_ID) {
           try {
             const dono = await client.users.fetch(DONO_ID);
-            await dono.send('🚀 Bot Steam Família está online! (Com ícones e porcentagem)')
+            await dono.send('🚀 Bot Steam Família está online! (Todos os jogos recentes)')
               .catch(e => console.log(`⚠️ Não foi possível enviar DM para o dono: ${e.message}`));
             console.log('✅ Mensagem de inicialização enviada ao dono.');
           } catch (error) {
@@ -1537,7 +1550,7 @@ client.once('clientReady', async () => {
 });
 
 // ============================================================
-// 18. COMANDO /conquista (RESUMIDO - MANTENDO AS FUNCIONALIDADES)
+// 18. COMANDO /conquista (RESUMIDO)
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -1699,7 +1712,6 @@ client.on('interactionCreate', async (interaction) => {
       const usuarioTemJogo = donosDoJogo.some(d => d.steamId === userSteamId);
       const nomesDonos = donosDoJogo.map(d => d.nome).join(', ');
 
-      // Função para gerar embed da conquista
       async function generateAchievementEmbed(ach, index) {
         let imageUrl = ach.icon;
         if (imageUrl && !imageUrl.startsWith('http')) {
