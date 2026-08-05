@@ -1,5 +1,5 @@
 // ============================================================
-// BOT STEAM FAMÍLIA - LIMITE PERSONALIZADO POR USUÁRIO
+// BOT STEAM FAMÍLIA - VERSÃO COMPLETA (12 JOGOS)
 // ============================================================
 
 console.log('🚀 [1] Iniciando o script...');
@@ -1035,7 +1035,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 }
 
 // ============================================================
-// 11. checkAchievements - LIMITE PERSONALIZADO POR USUÁRIO
+// 11. checkAchievements - 12 JOGOS (GARDEMI = 6)
 // ============================================================
 async function checkAchievements() {
   console.log(`🔍 [checkAchievements] Verificando conquistas da família...`);
@@ -1050,12 +1050,12 @@ async function checkAchievements() {
         const mention = `<@${discordId}>`;
 
         // 🔥 DEFINE O LIMITE POR USUÁRIO
-        let limit = 999; // Padrão: todos os jogos recentes
+        let limit = 12; // Padrão: 12 jogos
         if (userName === 'Gardemi') {
           limit = 6; // Gardemi: apenas 6 jogos
-          console.log(`📊 [${userName}] Buscando APENAS 6 jogos recentes (limite personalizado)...`);
+          console.log(`📊 [${userName}] Buscando APENAS ${limit} jogos recentes (limite personalizado)...`);
         } else {
-          console.log(`📊 [${userName}] Buscando TODOS os jogos recentes...`);
+          console.log(`📊 [${userName}] Buscando ${limit} jogos recentes...`);
         }
 
         const recentGames = await getRecentlyPlayedGames(steamId, limit);
@@ -1067,7 +1067,28 @@ async function checkAchievements() {
 
         console.log(`📊 ${userName} - ${recentGames.length} jogos recentes encontrados:`);
         for (const game of recentGames) {
-          const lastPlayed = game.rtime_last_played ? new Date(game.rtime_last_played * 1000).toLocaleString() : 'N/A';
+          // 🔥 FORMATAR DATA DE FORMA LEGÍVEL
+          let lastPlayed = 'N/A';
+          if (game.rtime_last_played) {
+            const date = new Date(game.rtime_last_played * 1000);
+            const agora = new Date();
+            const diffMs = agora - date;
+            const diffMin = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+            
+            if (diffMin < 1) {
+              lastPlayed = 'Agora mesmo';
+            } else if (diffMin < 60) {
+              lastPlayed = `${diffMin} minutos atrás`;
+            } else if (diffHours < 24) {
+              lastPlayed = `${diffHours} horas atrás`;
+            } else if (diffDays < 7) {
+              lastPlayed = `${diffDays} dias atrás`;
+            } else {
+              lastPlayed = date.toLocaleDateString('pt-BR');
+            }
+          }
           console.log(`   🎮 ${game.name || `App ${game.appid}`} (${game.appid}) - Última vez: ${lastPlayed}`);
         }
 
@@ -1536,7 +1557,7 @@ client.once('clientReady', async () => {
         if (DONO_ID) {
           try {
             const dono = await client.users.fetch(DONO_ID);
-            await dono.send('🚀 Bot Steam Família está online! (Limite personalizado)')
+            await dono.send('🚀 Bot Steam Família está online! (12 jogos)')
               .catch(e => console.log(`⚠️ Não foi possível enviar DM para o dono: ${e.message}`));
             console.log('✅ Mensagem de inicialização enviada ao dono.');
           } catch (error) {
