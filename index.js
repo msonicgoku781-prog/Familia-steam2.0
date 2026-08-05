@@ -850,7 +850,7 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 10. VERIFICAÇÃO DE CONQUISTAS (VERSÃO CORRIGIDA - THUMBNAIL)
+// 10. VERIFICAÇÃO DE CONQUISTAS (VERSÃO CORRIGIDA - URL)
 // ============================================================
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length) {
@@ -969,12 +969,19 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       const faltam = totalJogo - progressoAtual;
       const nomeBonito = await getAchievementDisplayName(appid, ach.apiname);
 
-      // 🔥 BUSCA O ÍCONE DA CONQUISTA
+      // 🔥 CORREÇÃO: Verifica se o ícone já é uma URL completa
       let iconUrl = null;
       const iconName = iconMap[ach.apiname];
       if (iconName) {
-        iconUrl = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/${appid}/${iconName}`;
-        console.log(`🖼️ Ícone da conquista encontrado: ${iconUrl}`);
+        // Se já começa com http, é uma URL completa
+        if (iconName.startsWith('http')) {
+          iconUrl = iconName;
+          console.log(`🖼️ Ícone da conquista (URL completa): ${iconUrl}`);
+        } else {
+          // Se não, constrói a URL
+          iconUrl = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/${appid}/${iconName}`;
+          console.log(`🖼️ Ícone da conquista (construído): ${iconUrl}`);
+        }
       }
 
       // 🔥 BUSCA A IMAGEM DO JOGO (HEADER)
@@ -1004,6 +1011,14 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
         console.log(`🖼️ Usando header do jogo (fallback): ${imageToUse}`);
       }
 
+      // 🔥 CORREÇÃO: Se a URL tiver http:// duplicado, corrige
+      if (imageToUse && imageToUse.includes('http://') && imageToUse.includes('http://', imageToUse.indexOf('http://') + 7)) {
+        // Pega apenas a primeira parte
+        const parts = imageToUse.split('http://');
+        imageToUse = 'http://' + parts[parts.length - 1];
+        console.log(`🖼️ URL corrigida (duplicada): ${imageToUse}`);
+      }
+
       const percent = ach.percent || 0;
       const percentText = percent > 0 ? `${percent.toFixed(1)}% dos jogadores` : 'Dados indisponíveis';
 
@@ -1017,7 +1032,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
         rarezaText = ' (Rara)';
       }
 
-      // 🔥 CRIA O EMBED COM THUMBNAIL (que funciona melhor)
+      // 🔥 CRIA O EMBED COM THUMBNAIL
       const embed = new EmbedBuilder()
         .setColor(percent > 0 && percent <= 5 ? 0xFFD700 : 0x00AE86)
         .setTitle(`${ACHIEVEMENT_EMOJI} ${userName} desbloqueou uma conquista!`)
@@ -1028,7 +1043,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
           { name: '📊 Progresso', value: `${progressoAtual}/${totalJogo} ${faltam > 0 ? `(faltam ${faltam})` : '🎉 COMPLETO!'}`, inline: true },
           { name: '📈 Raridade', value: `${percentText}${rarezaText}`, inline: true }
         )
-        .setThumbnail(imageToUse)  // 🔥 USANDO THUMBNAIL
+        .setThumbnail(imageToUse)
         .setFooter({ 
           text: `🏆 ${userName} • ${gameName} • ${new Date().toLocaleTimeString()}`,
           iconURL: client.user.displayAvatarURL()
