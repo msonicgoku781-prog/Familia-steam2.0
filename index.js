@@ -850,7 +850,7 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 10. VERIFICAÇÃO DE CONQUISTAS (VERSÃO CORRIGIDA COM ÍCONE)
+// 10. VERIFICAÇÃO DE CONQUISTAS (VERSÃO CORRIGIDA - THUMBNAIL)
 // ============================================================
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length) {
@@ -969,7 +969,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       const faltam = totalJogo - progressoAtual;
       const nomeBonito = await getAchievementDisplayName(appid, ach.apiname);
 
-      // 🔥 BUSCA O ÍCONE DA CONQUISTA (IGUAL AO /conquista)
+      // 🔥 BUSCA O ÍCONE DA CONQUISTA
       let iconUrl = null;
       const iconName = iconMap[ach.apiname];
       if (iconName) {
@@ -977,26 +977,31 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
         console.log(`🖼️ Ícone da conquista encontrado: ${iconUrl}`);
       }
 
-      // Se não tiver ícone da conquista, usa a imagem do jogo como fallback
-      let imageUrl = iconUrl;
-      if (!imageUrl || imageUrl.includes('null') || imageUrl.includes('undefined')) {
-        try {
-          const detalhes = await getGameDetails(appid);
-          if (detalhes?.header_image) {
-            imageUrl = detalhes.header_image;
-            console.log(`🖼️ Usando imagem do jogo: ${imageUrl}`);
-          } else {
-            imageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
-          }
-        } catch (e) {
-          console.log(`⚠️ Erro ao buscar imagem do jogo: ${e.message}`);
-          imageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
+      // 🔥 BUSCA A IMAGEM DO JOGO (HEADER)
+      let gameImageUrl = null;
+      try {
+        const detalhes = await getGameDetails(appid);
+        if (detalhes?.header_image) {
+          gameImageUrl = detalhes.header_image;
+          console.log(`🖼️ Header do jogo encontrado: ${gameImageUrl}`);
         }
+      } catch (e) {
+        console.log(`⚠️ Erro ao buscar header do jogo: ${e.message}`);
       }
 
-      // Verifica se a URL é válida
-      if (!imageUrl || imageUrl.includes('null') || imageUrl.includes('undefined')) {
-        imageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
+      // 🔥 FALLBACK: Usa a URL padrão da Steam
+      if (!gameImageUrl) {
+        gameImageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
+        console.log(`🖼️ Usando header padrão: ${gameImageUrl}`);
+      }
+
+      // 🔥 DECIDE QUAL IMAGEM USAR: Prioriza o ícone da conquista
+      let imageToUse = iconUrl || gameImageUrl;
+      
+      // 🔥 VERIFICA SE A URL É VÁLIDA
+      if (!imageToUse || imageToUse.includes('null') || imageToUse.includes('undefined')) {
+        imageToUse = gameImageUrl;
+        console.log(`🖼️ Usando header do jogo (fallback): ${imageToUse}`);
       }
 
       const percent = ach.percent || 0;
@@ -1012,7 +1017,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
         rarezaText = ' (Rara)';
       }
 
-      // 🔥 USA setImage (imagem grande) em vez de setThumbnail
+      // 🔥 CRIA O EMBED COM THUMBNAIL (que funciona melhor)
       const embed = new EmbedBuilder()
         .setColor(percent > 0 && percent <= 5 ? 0xFFD700 : 0x00AE86)
         .setTitle(`${ACHIEVEMENT_EMOJI} ${userName} desbloqueou uma conquista!`)
@@ -1023,7 +1028,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
           { name: '📊 Progresso', value: `${progressoAtual}/${totalJogo} ${faltam > 0 ? `(faltam ${faltam})` : '🎉 COMPLETO!'}`, inline: true },
           { name: '📈 Raridade', value: `${percentText}${rarezaText}`, inline: true }
         )
-        .setImage(imageUrl)  // 🔥 MUDANÇA: setImage em vez de setThumbnail
+        .setThumbnail(imageToUse)  // 🔥 USANDO THUMBNAIL
         .setFooter({ 
           text: `🏆 ${userName} • ${gameName} • ${new Date().toLocaleTimeString()}`,
           iconURL: client.user.displayAvatarURL()
@@ -1032,9 +1037,29 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 
       try {
         await channel.send({ embeds: [embed] });
-        console.log(`✅ Mensagem de conquista enviada com imagem: ${imageUrl}`);
+        console.log(`✅ Mensagem de conquista enviada com thumbnail: ${imageToUse}`);
       } catch (error) {
         console.error(`❌ Erro ao enviar mensagem no canal ${channel.name}:`, error.message);
+        // 🔥 TENTA NOVAMENTE SEM A IMAGEM SE FALHAR
+        if (error.message.includes('image')) {
+          console.log(`🔄 Tentando enviar sem imagem...`);
+          const embedSemImagem = new EmbedBuilder()
+            .setColor(percent > 0 && percent <= 5 ? 0xFFD700 : 0x00AE86)
+            .setTitle(`${ACHIEVEMENT_EMOJI} ${userName} desbloqueou uma conquista!`)
+            .setDescription(`**${nomeBonito}** ${rarezaEmoji}`)
+            .addFields(
+              { name: '🎮 Jogo', value: gameName, inline: true },
+              { name: '👤 Jogador', value: mention, inline: true },
+              { name: '📊 Progresso', value: `${progressoAtual}/${totalJogo} ${faltam > 0 ? `(faltam ${faltam})` : '🎉 COMPLETO!'}`, inline: true },
+              { name: '📈 Raridade', value: `${percentText}${rarezaText}`, inline: true }
+            )
+            .setFooter({ 
+              text: `🏆 ${userName} • ${gameName} • ${new Date().toLocaleTimeString()}`,
+              iconURL: client.user.displayAvatarURL()
+            })
+            .setTimestamp();
+          await channel.send({ embeds: [embedSemImagem] });
+        }
       }
     }
 
@@ -1490,7 +1515,36 @@ async function carregarMapeamentoDoCanal(channel) {
 }
 
 // ============================================================
-// 17. EVENTO clientReady
+// 17. FUNÇÃO DE TESTE DE IMAGENS
+// ============================================================
+async function testImageUrls() {
+  console.log('🧪 TESTANDO URLs DE IMAGEM...');
+  
+  const testAppId = 730; // CS:GO
+  const testIcon = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/730/6f4d5f7e8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d.jpg`;
+  const testHeader = `https://cdn.cloudflare.steamstatic.com/steam/apps/730/header.jpg`;
+  
+  console.log(`📸 Teste 1 - Ícone: ${testIcon}`);
+  console.log(`📸 Teste 2 - Header: ${testHeader}`);
+  
+  // Verifica se as URLs são acessíveis
+  try {
+    const response1 = await axios.head(testIcon, { timeout: 3000 });
+    console.log(`✅ Ícone acessível: ${response1.status}`);
+  } catch (e) {
+    console.log(`❌ Ícone não acessível: ${e.message}`);
+  }
+  
+  try {
+    const response2 = await axios.head(testHeader, { timeout: 3000 });
+    console.log(`✅ Header acessível: ${response2.status}`);
+  } catch (e) {
+    console.log(`❌ Header não acessível: ${e.message}`);
+  }
+}
+
+// ============================================================
+// 18. EVENTO clientReady
 // ============================================================
 let botIniciado = false;
 const flagFile = path.join(__dirname, 'bot_started.flag');
@@ -1525,6 +1579,9 @@ client.once('clientReady', async () => {
     }
 
     conquestMappings = await carregarMapeamentoConquistas();
+    
+    // 🔥 TESTE DE IMAGENS
+    await testImageUrls();
 
     console.log('🔄 Registrando comandos...');
     try {
@@ -1604,7 +1661,7 @@ client.once('clientReady', async () => {
 });
 
 // ============================================================
-// 18. COMANDO /dbstatus
+// 19. COMANDO /dbstatus
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -1659,7 +1716,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 19. COMANDO /conquista
+// 20. COMANDO /conquista
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2147,7 +2204,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 20. FALLBACK PARA BOTÕES
+// 21. FALLBACK PARA BOTÕES
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
@@ -2189,7 +2246,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 21. OUTROS COMANDOS
+// 22. OUTROS COMANDOS
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
@@ -2229,7 +2286,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 22. HEALTH CHECK PARA RAILWAY
+// 23. HEALTH CHECK PARA RAILWAY
 // ============================================================
 if (process.env.PORT) {
   try {
@@ -2251,7 +2308,7 @@ if (process.env.PORT) {
 }
 
 // ============================================================
-// 23. LOGIN
+// 24. LOGIN
 // ============================================================
 console.log('🔑 Tentando login...');
 client.login(DISCORD_TOKEN)
