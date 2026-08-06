@@ -420,39 +420,7 @@ async function listarQuero(discordId) {
   return await loadQueroList(discordId);
 }
 
-// ============================================================
-// 5.1 FUNÇÕES DE WISHLIST SALVA NO CANAL
-// ============================================================
-async function getWishlistMessage(discordId) {
-  const channel = client.channels.cache.get(QUERO_CHANNEL);
-  if (!channel) return null;
-  try {
-    const messages = await channel.messages.fetch({ limit: 100 });
-    return messages.find(m => m.content.startsWith(`WISHLIST_${discordId}:`)) || null;
-  } catch (_) { return null; }
-}
-
-async function loadWishlist(discordId) {
-  const msg = await getWishlistMessage(discordId);
-  if (!msg) return [];
-  try {
-    const jsonPart = msg.content.substring(msg.content.indexOf(':') + 1).trim();
-    const list = JSON.parse(jsonPart);
-    return Array.isArray(list) ? list : [];
-  } catch (_) { return []; }
-}
-
-async function saveWishlist(discordId, list) {
-  const channel = client.channels.cache.get(QUERO_CHANNEL);
-  if (!channel) return false;
-  const content = `WISHLIST_${discordId}: ${JSON.stringify(list)}`;
-  try {
-    const msg = await getWishlistMessage(discordId);
-    if (msg) await msg.edit(content);
-    else await channel.send(content);
-    return true;
-  } catch (_) { return false; }
-}
+console.log('🚀 [7] Funções /quero carregadas.');
 
 // ============================================================
 // 6. FUNÇÕES DA STEAM API
@@ -600,186 +568,6 @@ async function getCurrentGame(steamId) {
   return null;
 }
 
-// ============================================================
-// 6.1 FUNÇÃO PARA BUSCAR WISHLIST COM FALLBACKS
-// ============================================================
-async function getSteamWishlistWithFallbacks(steamId) {
-  const tentativas = [
-    // Tentativa 1: URL padrão com headers completos
-    {
-      url: `https://store.steampowered.com/wishlist/profiles/${steamId}/wishlistdata/`,
-      params: { l: 'portuguese', v: '1' },
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
-        'Referer': 'https://store.steampowered.com/',
-        'Origin': 'https://store.steampowered.com'
-      }
-    },
-    // Tentativa 2: URL sem o /wishlistdata/
-    {
-      url: `https://store.steampowered.com/wishlist/profiles/${steamId}/`,
-      params: { l: 'portuguese', v: '1' },
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
-        'Referer': 'https://store.steampowered.com/'
-      }
-    },
-    // Tentativa 3: API não oficial
-    {
-      url: `https://api.steampowered.com/api/wishlist/`,
-      params: { steamid: steamId, l: 'portuguese' },
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json'
-      }
-    },
-    // Tentativa 4: Sem parâmetro v
-    {
-      url: `https://store.steampowered.com/wishlist/profiles/${steamId}/wishlistdata/`,
-      params: { l: 'portuguese' },
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-        'Referer': 'https://store.steampowered.com/'
-      }
-    },
-    // Tentativa 5: Com country code
-    {
-      url: `https://store.steampowered.com/wishlist/profiles/${steamId}/wishlistdata/`,
-      params: { l: 'portuguese', cc: 'BR' },
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json'
-      }
-    }
-  ];
-
-  let lastError = null;
-
-  for (let i = 0; i < tentativas.length; i++) {
-    const tentativa = tentativas[i];
-    const urlCompleta = tentativa.url + '?' + new URLSearchParams(tentativa.params).toString();
-    console.log(`🔄 Tentativa ${i+1}/${tentativas.length}: ${urlCompleta}`);
-
-    try {
-      const response = await axios.get(tentativa.url, {
-        params: tentativa.params,
-        timeout: 10000,
-        headers: tentativa.headers,
-        maxRedirects: 5
-      });
-
-      console.log(`📡 [Tentativa ${i+1}] Status: ${response.status}`);
-      
-      const contentType = response.headers['content-type'] || '';
-      
-      if (contentType.includes('text/html')) {
-        console.log(`🔒 [Tentativa ${i+1}] Resposta é HTML (wishlist privada ou perfil não público)`);
-        lastError = 'HTML (privada)';
-        continue;
-      }
-
-      if (contentType.includes('application/json') || typeof response.data === 'object') {
-        const data = response.data;
-        console.log(`📄 [Tentativa ${i+1}] Tipo de dados: ${typeof data}`);
-        
-        if (data && typeof data === 'object' && Object.keys(data).length === 0) {
-          console.log(`📋 [Tentativa ${i+1}] Wishlist vazia (0 jogos)`);
-          return { success: true, wishlist: [], method: `Tentativa ${i+1}` };
-        }
-
-        if (data && typeof data === 'object') {
-          const wishlist = [];
-          for (const [appid, gameData] of Object.entries(data)) {
-            if (gameData && gameData.name) {
-              wishlist.push({
-                appid: parseInt(appid),
-                nome: gameData.name,
-                link: `https://store.steampowered.com/app/${appid}`
-              });
-            }
-          }
-          console.log(`✅ [Tentativa ${i+1}] ${wishlist.length} jogos encontrados`);
-          return { success: true, wishlist: wishlist, method: `Tentativa ${i+1}` };
-        }
-      }
-
-      console.log(`⚠️ [Tentativa ${i+1}] Resposta inesperada: ${typeof response.data}`);
-      lastError = `Resposta inesperada (${typeof response.data})`;
-      
-    } catch (error) {
-      console.error(`❌ [Tentativa ${i+1}] Erro: ${error.message}`);
-      if (error.response) {
-        console.log(`📡 Status: ${error.response.status}`);
-        if (error.response.status === 404) {
-          console.log(`🔒 Wishlist não encontrada (404) - pode ser ID inválido`);
-          lastError = '404 - ID inválido';
-        } else if (error.response.status === 403) {
-          console.log(`🔒 Wishlist privada (403)`);
-          lastError = '403 - Privada';
-        } else {
-          lastError = `${error.response.status} - ${error.message}`;
-        }
-      } else {
-        lastError = error.message;
-      }
-    }
-  }
-
-  console.error(`❌ Todas as ${tentativas.length} tentativas falharam. Último erro: ${lastError}`);
-  return { success: false, error: lastError || 'Todas as tentativas falharam' };
-}
-
-// ============================================================
-// 5.2 FUNÇÃO DE SINCRONIZAÇÃO COM FALLBACKS
-// ============================================================
-async function syncWishlistFromSteam(steamId, discordId) {
-  try {
-    console.log(`🔄 Sincronizando wishlist da Steam para ${MEMBROS[steamId]?.nome || steamId} (steamId: ${steamId})...`);
-    
-    const result = await getSteamWishlistWithFallbacks(steamId);
-    
-    if (!result.success) {
-      console.log(`❌ Falha ao buscar wishlist: ${result.error}`);
-      let mensagem = result.error;
-      if (result.error.includes('privada') || result.error.includes('403') || result.error.includes('HTML')) {
-        mensagem = 'Wishlist privada ou perfil Steam não está público. Verifique as configurações de privacidade.';
-      } else if (result.error.includes('404')) {
-        mensagem = 'Steam ID inválido. Verifique o ID numérico do seu perfil.';
-      }
-      return { success: false, message: mensagem, wishlist: [] };
-    }
-    
-    const wishlist = result.wishlist || [];
-    
-    if (wishlist.length === 0) {
-      const existing = await loadWishlist(discordId);
-      if (existing && existing.length > 0) {
-        console.log(`⚠️ Wishlist vazia da Steam, mantendo a salva (${existing.length} jogos)`);
-        return { success: true, message: `Wishlist vazia, mantendo ${existing.length} jogos salvos`, wishlist: existing };
-      }
-      await saveWishlist(discordId, []);
-      console.log(`ℹ️ Wishlist vazia salva para ${steamId}`);
-      return { success: true, message: 'Wishlist sincronizada (vazia)', wishlist: [] };
-    }
-    
-    const saved = await saveWishlist(discordId, wishlist);
-    if (saved) {
-      console.log(`✅ Wishlist de ${MEMBROS[steamId]?.nome || steamId} salva (${wishlist.length} jogos) - Método: ${result.method}`);
-      return { success: true, message: `${wishlist.length} jogos sincronizados`, wishlist: wishlist };
-    } else {
-      return { success: false, message: 'Erro ao salvar wishlist no canal', wishlist: [] };
-    }
-  } catch (error) {
-    console.error(`❌ Erro ao sincronizar wishlist:`, error.message);
-    return { success: false, message: `Erro: ${error.message}`, wishlist: [] };
-  }
-}
-
 const achievementNameCache = {};
 
 async function getAchievementDisplayName(appId, apiname) {
@@ -856,7 +644,7 @@ async function traduzirTexto(texto, targetLang = 'pt') {
 console.log('🚀 [8] Funções da Steam API carregadas.');
 
 // ============================================================
-// 6.2 FUNÇÃO PARA BUSCAR CONQUISTAS COM PORCENTAGEM
+// 6.1 FUNÇÃO PARA BUSCAR CONQUISTAS COM PORCENTAGEM
 // ============================================================
 async function getPlayerAchievementsWithPercent(steamId, appId) {
   try {
@@ -1051,7 +839,6 @@ async function enviarRegras() {
       '`/quero [jogo]` – Adiciona um jogo à sua lista de desejos.\n' +
       '`/quero-listar` – Lista os jogos da sua lista /quero.\n' +
       '`/quero-remover [jogo]` – Remove um jogo da sua lista /quero.\n' +
-      '`/wishlist-sync` – Sincroniza sua wishlist da Steam com o bot.\n' +
       '`/dbstatus` – Status do banco de dados (apenas dono).\n' +
       '`/regras` – Exibe esta mensagem novamente.\n' +
       '`/conquista jogo:"nome"` – Mostra todas as conquistas de um jogo com vídeos guia.\n\n' +
@@ -1059,7 +846,7 @@ async function enviarRegras() {
       '• 🆕 Novos jogos compatíveis são anunciados com `@everyone`.\n' +
       '• 🏆 Conquistas são monitoradas e notificadas no canal de conquistas.\n' +
       '• 📢 Lançamentos e promoções de jogos da sua lista `/quero` são enviados por DM.\n' +
-      '• 🎯 Quando alguém comprar um jogo da sua **wishlist da Steam**, você recebe uma DM!\n\n' +
+      '• 🎯 Quando alguém comprar um jogo da sua **lista /quero**, você recebe uma DM!\n\n' +
       '**📌 CANAIS IMPORTANTES**\n' +
       `• 📢 **Notificações:** <#${CHANNEL_ID}>\n` +
       `• 🏆 **Conquistas:** <#${ACHIEVEMENT_CHANNEL_ID}>\n` +
@@ -1276,34 +1063,35 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 }
 
 // ============================================================
-// 11. VERIFICAÇÃO DE JOGOS DA WISHLIST (USANDO DADOS SALVOS)
+// 11. VERIFICAÇÃO DE JOGOS DA LISTA /quero COMPRADOS
 // ============================================================
-async function verificarJogosWishlistComprados(steamId, newGames, comprador) {
+async function verificarJogosQueroComprados(steamId, newGames, comprador) {
   try {
     if (!newGames || newGames.length === 0) return;
     
-    console.log(`🔍 Verificando se ${comprador} comprou jogos da wishlist de alguém...`);
+    console.log(`🔍 Verificando se ${comprador} comprou jogos da lista /quero de alguém...`);
     
     for (const [sid, member] of Object.entries(MEMBROS)) {
       if (sid === steamId) continue;
       
       const discordId = member.discordId;
       
-      const wishlist = await loadWishlist(discordId);
-      if (!wishlist || wishlist.length === 0) {
-        console.log(`ℹ️ ${member.nome} não tem wishlist salva`);
+      // 🔥 CARREGA A LISTA /quero DO MEMBRO
+      const listaQuero = await loadQueroList(discordId);
+      if (!listaQuero || listaQuero.length === 0) {
+        console.log(`ℹ️ ${member.nome} não tem lista /quero`);
         continue;
       }
       
-      console.log(`📋 ${member.nome} tem ${wishlist.length} jogos na wishlist`);
+      console.log(`📋 ${member.nome} tem ${listaQuero.length} jogos na lista /quero`);
       
       for (const game of newGames) {
         const appid = game.appid;
         const nome = game.name || `App ${appid}`;
         
-        const jogoNaWishlist = wishlist.find(j => j.appid === appid);
-        if (jogoNaWishlist) {
-          console.log(`🎯 ${comprador} comprou "${nome}" que está na wishlist de ${member.nome}`);
+        const jogoNaLista = listaQuero.find(j => j.appid === appid);
+        if (jogoNaLista) {
+          console.log(`🎯 ${comprador} comprou "${nome}" que está na lista /quero de ${member.nome}`);
           
           let precoInfo = null;
           let gameDetails = null;
@@ -1314,12 +1102,12 @@ async function verificarJogosWishlistComprados(steamId, newGames, comprador) {
           
           const embed = new EmbedBuilder()
             .setColor(0x00FF00)
-            .setTitle(`🎮 ${comprador} comprou um jogo da sua wishlist!`)
+            .setTitle(`🎮 ${comprador} comprou um jogo da sua lista /quero!`)
             .setDescription(`**${nome}** foi adicionado à biblioteca da família!`)
             .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
             .addFields(
               { name: '🛒 Comprado por', value: comprador, inline: true },
-              { name: '📌 Na sua wishlist', value: '✅ Sim', inline: true }
+              { name: '📌 Na sua lista desde', value: new Date(jogoNaLista.adicionado_em).toLocaleDateString('pt-BR'), inline: true }
             );
           
           if (precoInfo) {
@@ -1337,7 +1125,7 @@ async function verificarJogosWishlistComprados(steamId, newGames, comprador) {
           embed.addFields(
             { name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: false }
           )
-          .setFooter({ text: 'Steam Família - Alerta de Wishlist' })
+          .setFooter({ text: 'Steam Família - Alerta /quero' })
           .setTimestamp();
           
           try {
@@ -1351,7 +1139,7 @@ async function verificarJogosWishlistComprados(steamId, newGames, comprador) {
       }
     }
   } catch (err) {
-    console.error('❌ Erro em verificarJogosWishlistComprados:', err);
+    console.error('❌ Erro em verificarJogosQueroComprados:', err);
   }
 }
 
@@ -1511,8 +1299,8 @@ async function checkNewGames() {
         const newGames = allGames.filter(g => !oldIds.includes(g.appid));
         if (newGames.length === 0) continue;
 
-        // 🔥 VERIFICA SE ALGUÉM TEM ESSES JOGOS NA WISHLIST
-        await verificarJogosWishlistComprados(steamId, newGames, userName);
+        // 🔥 VERIFICA SE ALGUÉM TEM ESSES JOGOS NA LISTA /quero
+        await verificarJogosQueroComprados(steamId, newGames, userName);
 
         for (const game of newGames) {
           const appid = game.appid;
@@ -1862,7 +1650,6 @@ client.once('clientReady', async () => {
         { name: 'quero', description: 'Adiciona um jogo à sua lista de desejos', options: [{ name: 'jogo', description: 'Nome do jogo ou link da Steam', type: 3, required: true }] },
         { name: 'quero-listar', description: 'Lista os jogos da sua lista /quero' },
         { name: 'quero-remover', description: 'Remove um jogo da sua lista /quero', options: [{ name: 'jogo', description: 'Nome do jogo para remover', type: 3, required: true }] },
-        { name: 'wishlist-sync', description: 'Sincroniza sua wishlist da Steam com o bot' },
         { name: 'dbstatus', description: '[DONO] Status do banco de dados' },
         { name: 'regras', description: 'Mostra as regras e comandos do servidor' },
         {
@@ -1877,18 +1664,6 @@ client.once('clientReady', async () => {
     } catch (err) {
       console.error('❌ Erro ao registrar comandos:', err);
     }
-
-    // 🔥 SINCRONIZA WISHLISTS NA INICIALIZAÇÃO
-    console.log('🔄 Sincronizando wishlists de todos os membros...');
-    for (const [steamId, member] of Object.entries(MEMBROS)) {
-      try {
-        await syncWishlistFromSteam(steamId, member.discordId);
-        await new Promise(r => setTimeout(r, 2000));
-      } catch (err) {
-        console.error(`❌ Erro ao sincronizar wishlist de ${member.nome}:`, err.message);
-      }
-    }
-    console.log('✅ Sincronização de wishlists concluída!');
 
     if (ACHIEVEMENT_CHANNEL_ID) {
       console.log(`🔍 [INICIO] Verificando canal de conquistas: ${ACHIEVEMENT_CHANNEL_ID}`);
@@ -1999,70 +1774,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 20. COMANDO /wishlist-sync (COM FALLBACKS)
-// ============================================================
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-
-  if (interaction.commandName === 'wishlist-sync') {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    
-    try {
-      const discordId = interaction.user.id;
-      
-      let steamId = null;
-      for (const [sid, member] of Object.entries(MEMBROS)) {
-        if (member.discordId === discordId) {
-          steamId = sid;
-          break;
-        }
-      }
-      
-      if (!steamId) {
-        await interaction.editReply('❌ Você não está mapeado como membro da família.');
-        return;
-      }
-      
-      console.log(`🔍 [COMANDO] /wishlist-sync - Usuário: ${interaction.user.tag}, Steam ID: ${steamId}`);
-      
-      await interaction.editReply('⏳ Tentando sincronizar sua wishlist... (pode levar alguns segundos)');
-      
-      const result = await syncWishlistFromSteam(steamId, discordId);
-      
-      console.log(`📊 [COMANDO] Resultado: ${result.success ? 'Sucesso' : 'Falha'}`);
-      console.log(`📊 [COMANDO] Mensagem: ${result.message}`);
-      console.log(`📊 [COMANDO] Wishlist: ${result.wishlist.length} jogos`);
-      
-      if (result.success) {
-        await interaction.editReply({
-          content: `✅ ${result.message}\n📋 Total: ${result.wishlist.length} jogos na wishlist.`,
-          flags: MessageFlags.Ephemeral
-        });
-      } else {
-        let mensagem = `❌ Falha: ${result.message}`;
-        if (result.message.includes('privada') || result.message.includes('privacidade')) {
-          mensagem += `\n\n🔒 **Como tornar sua wishlist pública:**`;
-          mensagem += `\n1. Acesse seu perfil Steam → Editar Perfil → Privacidade`;
-          mensagem += `\n2. Em "Detalhes do jogo", selecione **Público**`;
-          mensagem += `\n3. Salve e tente novamente.`;
-        }
-        await interaction.editReply({
-          content: mensagem,
-          flags: MessageFlags.Ephemeral
-        });
-      }
-    } catch (error) {
-      console.error('❌ Erro no /wishlist-sync:', error);
-      await interaction.editReply({
-        content: `❌ Ocorreu um erro: ${error.message}`,
-        flags: MessageFlags.Ephemeral
-      });
-    }
-  }
-});
-
-// ============================================================
-// 21. COMANDO /quero
+// 20. COMANDO /quero
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2224,7 +1936,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 22. COMANDO /quero-listar
+// 21. COMANDO /quero-listar
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2293,7 +2005,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 23. COMANDO /quero-remover
+// 22. COMANDO /quero-remover
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2358,7 +2070,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 24. COMANDO /tem
+// 23. COMANDO /tem
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2434,7 +2146,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 25. COMANDO /conquista (RESUMIDO)
+// 24. COMANDO /conquista
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2569,8 +2281,8 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // ... resto do código do /conquista
-      // (mantido do código anterior para não exceder o limite)
+      // Restante do código do /conquista
+      // (mantido do código anterior)
 
     } catch (error) {
       console.error(`❌ [COMANDO] Erro crítico:`, error);
@@ -2582,7 +2294,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 26. FALLBACK PARA BOTÕES
+// 25. FALLBACK PARA BOTÕES
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
@@ -2624,7 +2336,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 27. OUTROS COMANDOS
+// 26. OUTROS COMANDOS
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
@@ -2678,7 +2390,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 28. HEALTH CHECK PARA RAILWAY
+// 27. HEALTH CHECK PARA RAILWAY
 // ============================================================
 if (process.env.PORT) {
   try {
@@ -2700,7 +2412,7 @@ if (process.env.PORT) {
 }
 
 // ============================================================
-// 29. LOGIN
+// 28. LOGIN
 // ============================================================
 console.log('🔑 Tentando login...');
 client.login(DISCORD_TOKEN)
