@@ -850,7 +850,7 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 10. VERIFICAÇÃO DE CONQUISTAS (VERSÃO CORRIGIDA - URL)
+// 10. VERIFICAÇÃO DE CONQUISTAS (VERSÃO COM LOGS REDUZIDOS)
 // ============================================================
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length) {
@@ -863,24 +863,21 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
     return;
   }
   
-  console.log(`🔍 [VERIFICAR] Procurando canal de conquistas: ${ACHIEVEMENT_CHANNEL_ID}`);
+  // 🔥 LOG REDUZIDO - só mostra uma vez
+  console.log(`🔍 [${userName}] Verificando ${gamesToCheck.length} jogo(s)...`);
+
   let channel = client.channels.cache.get(ACHIEVEMENT_CHANNEL_ID);
   
   if (!channel) {
-    console.log(`⚠️ Canal ${ACHIEVEMENT_CHANNEL_ID} não encontrado no cache. Tentando buscar via fetch...`);
     try {
       channel = await client.channels.fetch(ACHIEVEMENT_CHANNEL_ID);
       if (channel) {
-        console.log(`✅ Canal encontrado via fetch: ${channel.name} (${channel.id})`);
         client.channels.cache.set(channel.id, channel);
       }
     } catch (error) {
-      console.error(`❌ Falha ao buscar canal ${ACHIEVEMENT_CHANNEL_ID}:`, error.message);
-      console.log(`⚠️ Canal de conquistas não encontrado! As notificações não serão enviadas.`);
+      console.error(`❌ Falha ao buscar canal de conquistas:`, error.message);
       return;
     }
-  } else {
-    console.log(`✅ Canal encontrado no cache: ${channel.name} (${channel.id})`);
   }
 
   if (!db.conquistas[steamId]) db.conquistas[steamId] = {};
@@ -889,7 +886,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
     const appid = game.appid;
     const gameName = game.name || `Jogo ${appid}`;
 
-    console.log(`🔍 Verificando conquistas de "${gameName}" (${appid}) para ${userName}`);
+    console.log(`   🎯 ${gameName} (${appid})`);
 
     let schemaData = null;
     try {
@@ -897,7 +894,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       const params = { key: STEAM_KEY, appid: appid, l: 'portuguese' };
       schemaData = await fetchSteam(url, params, 2);
     } catch (e) {
-      console.log(`⚠️ Erro ao buscar schema do jogo ${gameName}: ${e.message}`);
+      console.log(`   ⚠️ Erro ao buscar schema: ${e.message}`);
     }
 
     const iconMap = {};
@@ -914,18 +911,18 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       conquistasData = await getPlayerAchievementsWithPercent(steamId, appid);
     } catch (e) {
       if (e.response && e.response.status === 400) {
-        console.log(`ℹ️ ${gameName} não possui conquistas (ou não é suportado pela API). Ignorando.`);
+        console.log(`   ℹ️ ${gameName} não possui conquistas.`);
         if (!db.jogosSemConquistas) db.jogosSemConquistas = {};
         db.jogosSemConquistas[appid] = { nome: gameName, data: new Date().toISOString(), motivo: 'sem_conquistas' };
         await salvarDBNoCanal();
         continue;
       }
-      console.log(`⚠️ Erro ao buscar conquistas de ${gameName}: ${e.message}`);
+      console.log(`   ⚠️ Erro ao buscar conquistas: ${e.message}`);
       continue;
     }
 
     if (!conquistasData?.achievements || conquistasData.achievements.length === 0) {
-      console.log(`ℹ️ ${gameName} não possui conquistas.`);
+      console.log(`   ℹ️ ${gameName} não possui conquistas.`);
       if (!db.jogosSemConquistas) db.jogosSemConquistas = {};
       db.jogosSemConquistas[appid] = { nome: gameName, data: new Date().toISOString(), motivo: 'sem_conquistas' };
       await salvarDBNoCanal();
@@ -937,7 +934,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
     const total = desbloqueadas.length;
     const totalJogo = conquistas.length;
 
-    console.log(`📊 ${gameName}: ${total}/${totalJogo} conquistas desbloqueadas`);
+    console.log(`   📊 ${total}/${totalJogo} conquistas desbloqueadas`);
 
     if (!db.conquistas[steamId][appid]) {
       db.conquistas[steamId][appid] = { 
@@ -946,7 +943,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
         totalJogo
       };
       await salvarDBNoCanal();
-      console.log(`📊 Primeira verificação de ${gameName}: ${total}/${totalJogo} conquistas`);
+      console.log(`   📊 Primeira verificação de ${gameName}: ${total}/${totalJogo} conquistas`);
       continue;
     }
 
@@ -956,11 +953,11 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
     const novas = desbloqueadas.filter(c => !antigos.includes(c.apiname));
 
     if (novas.length === 0) {
-      console.log(`ℹ️ ${gameName} - Nenhuma nova conquista para ${userName}`);
+      console.log(`   ℹ️ Nenhuma nova conquista`);
       continue;
     }
 
-    console.log(`🎉 ${userName} desbloqueou ${novas.length} nova(s) conquista(s) em ${gameName}`);
+    console.log(`   🎉 ${novas.length} nova(s) conquista(s) desbloqueada(s)!`);
 
     let contador = 0;
     for (const ach of novas) {
@@ -969,18 +966,14 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       const faltam = totalJogo - progressoAtual;
       const nomeBonito = await getAchievementDisplayName(appid, ach.apiname);
 
-      // 🔥 CORREÇÃO: Verifica se o ícone já é uma URL completa
+      // 🔥 BUSCA O ÍCONE DA CONQUISTA
       let iconUrl = null;
       const iconName = iconMap[ach.apiname];
       if (iconName) {
-        // Se já começa com http, é uma URL completa
         if (iconName.startsWith('http')) {
           iconUrl = iconName;
-          console.log(`🖼️ Ícone da conquista (URL completa): ${iconUrl}`);
         } else {
-          // Se não, constrói a URL
           iconUrl = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/${appid}/${iconName}`;
-          console.log(`🖼️ Ícone da conquista (construído): ${iconUrl}`);
         }
       }
 
@@ -990,33 +983,23 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
         const detalhes = await getGameDetails(appid);
         if (detalhes?.header_image) {
           gameImageUrl = detalhes.header_image;
-          console.log(`🖼️ Header do jogo encontrado: ${gameImageUrl}`);
         }
-      } catch (e) {
-        console.log(`⚠️ Erro ao buscar header do jogo: ${e.message}`);
-      }
+      } catch (e) {}
 
-      // 🔥 FALLBACK: Usa a URL padrão da Steam
       if (!gameImageUrl) {
         gameImageUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
-        console.log(`🖼️ Usando header padrão: ${gameImageUrl}`);
       }
 
-      // 🔥 DECIDE QUAL IMAGEM USAR: Prioriza o ícone da conquista
       let imageToUse = iconUrl || gameImageUrl;
       
-      // 🔥 VERIFICA SE A URL É VÁLIDA
       if (!imageToUse || imageToUse.includes('null') || imageToUse.includes('undefined')) {
         imageToUse = gameImageUrl;
-        console.log(`🖼️ Usando header do jogo (fallback): ${imageToUse}`);
       }
 
-      // 🔥 CORREÇÃO: Se a URL tiver http:// duplicado, corrige
+      // 🔥 CORREÇÃO: Se a URL tiver http:// duplicado
       if (imageToUse && imageToUse.includes('http://') && imageToUse.includes('http://', imageToUse.indexOf('http://') + 7)) {
-        // Pega apenas a primeira parte
         const parts = imageToUse.split('http://');
         imageToUse = 'http://' + parts[parts.length - 1];
-        console.log(`🖼️ URL corrigida (duplicada): ${imageToUse}`);
       }
 
       const percent = ach.percent || 0;
@@ -1032,7 +1015,6 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
         rarezaText = ' (Rara)';
       }
 
-      // 🔥 CRIA O EMBED COM THUMBNAIL
       const embed = new EmbedBuilder()
         .setColor(percent > 0 && percent <= 5 ? 0xFFD700 : 0x00AE86)
         .setTitle(`${ACHIEVEMENT_EMOJI} ${userName} desbloqueou uma conquista!`)
@@ -1052,33 +1034,12 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 
       try {
         await channel.send({ embeds: [embed] });
-        console.log(`✅ Mensagem de conquista enviada com thumbnail: ${imageToUse}`);
+        console.log(`   ✅ Mensagem enviada com imagem`);
       } catch (error) {
-        console.error(`❌ Erro ao enviar mensagem no canal ${channel.name}:`, error.message);
-        // 🔥 TENTA NOVAMENTE SEM A IMAGEM SE FALHAR
-        if (error.message.includes('image')) {
-          console.log(`🔄 Tentando enviar sem imagem...`);
-          const embedSemImagem = new EmbedBuilder()
-            .setColor(percent > 0 && percent <= 5 ? 0xFFD700 : 0x00AE86)
-            .setTitle(`${ACHIEVEMENT_EMOJI} ${userName} desbloqueou uma conquista!`)
-            .setDescription(`**${nomeBonito}** ${rarezaEmoji}`)
-            .addFields(
-              { name: '🎮 Jogo', value: gameName, inline: true },
-              { name: '👤 Jogador', value: mention, inline: true },
-              { name: '📊 Progresso', value: `${progressoAtual}/${totalJogo} ${faltam > 0 ? `(faltam ${faltam})` : '🎉 COMPLETO!'}`, inline: true },
-              { name: '📈 Raridade', value: `${percentText}${rarezaText}`, inline: true }
-            )
-            .setFooter({ 
-              text: `🏆 ${userName} • ${gameName} • ${new Date().toLocaleTimeString()}`,
-              iconURL: client.user.displayAvatarURL()
-            })
-            .setTimestamp();
-          await channel.send({ embeds: [embedSemImagem] });
-        }
+        console.error(`   ❌ Erro ao enviar mensagem:`, error.message);
       }
     }
 
-    // Atualiza o banco de dados
     db.conquistas[steamId][appid] = { 
       total, 
       nomes: desbloqueadas.map(c => c.apiname), 
@@ -1089,7 +1050,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 }
 
 // ============================================================
-// 11. checkAchievements - 12 JOGOS (GARDEMI = 6)
+// 11. checkAchievements - 12 JOGOS (GARDEMI = 6) - CORRIGIDO
 // ============================================================
 async function checkAchievements() {
   console.log(`🔍 [checkAchievements] Verificando conquistas da família...`);
@@ -1119,8 +1080,18 @@ async function checkAchievements() {
           continue;
         }
 
-        console.log(`📊 ${userName} - ${recentGames.length} jogos recentes encontrados:`);
+        // 🔥 REMOVE DUPLICATAS
+        const uniqueGames = [];
+        const seenAppIds = new Set();
         for (const game of recentGames) {
+          if (!seenAppIds.has(game.appid)) {
+            seenAppIds.add(game.appid);
+            uniqueGames.push(game);
+          }
+        }
+
+        console.log(`📊 ${userName} - ${uniqueGames.length} jogos recentes únicos encontrados:`);
+        for (const game of uniqueGames) {
           let lastPlayed = 'N/A';
           if (game.rtime_last_played) {
             const date = new Date(game.rtime_last_played * 1000);
@@ -1149,11 +1120,11 @@ async function checkAchievements() {
         const agora = Date.now();
         const INTERVALO_VERIFICACAO = 5 * 60 * 1000;
         
-        for (const game of recentGames) {
+        for (const game of uniqueGames) {
           const appid = game.appid;
           
           if (db.jogosSemConquistas && db.jogosSemConquistas[appid]) {
-            console.log(`ℹ️ ${game.name || `App ${appid}`} já foi marcado como sem conquistas. Ignorando.`);
+            console.log(`   ℹ️ ${game.name || `App ${appid}`} já foi marcado como sem conquistas. Ignorando.`);
             continue;
           }
           
@@ -1167,7 +1138,7 @@ async function checkAchievements() {
             console.log(`   ✅ Será verificado agora`);
           } else {
             const tempoRestante = ((INTERVALO_VERIFICACAO - (agora - ultimaVerificacao)) / 1000 / 60);
-            console.log(`   ⏳ Aguardando ${tempoRestante.toFixed(1)} minutos para próxima verificação`);
+            console.log(`   ⏳ Aguardando ${tempoRestante.toFixed(1)} minutos`);
           }
         }
 
@@ -1176,7 +1147,7 @@ async function checkAchievements() {
           continue;
         }
 
-        console.log(`📊 ${userName} - Verificando ${jogosParaVerificar.length} jogos recentes:`);
+        console.log(`📊 ${userName} - Verificando ${jogosParaVerificar.length} jogos:`);
         for (const game of jogosParaVerificar) {
           console.log(`   🎮 ${game.name || `App ${game.appid}`} (${game.appid})`);
         }
@@ -1530,36 +1501,7 @@ async function carregarMapeamentoDoCanal(channel) {
 }
 
 // ============================================================
-// 17. FUNÇÃO DE TESTE DE IMAGENS
-// ============================================================
-async function testImageUrls() {
-  console.log('🧪 TESTANDO URLs DE IMAGEM...');
-  
-  const testAppId = 730; // CS:GO
-  const testIcon = `https://cdn.steamstatic.com/steamcommunity/public/images/apps/730/6f4d5f7e8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d.jpg`;
-  const testHeader = `https://cdn.cloudflare.steamstatic.com/steam/apps/730/header.jpg`;
-  
-  console.log(`📸 Teste 1 - Ícone: ${testIcon}`);
-  console.log(`📸 Teste 2 - Header: ${testHeader}`);
-  
-  // Verifica se as URLs são acessíveis
-  try {
-    const response1 = await axios.head(testIcon, { timeout: 3000 });
-    console.log(`✅ Ícone acessível: ${response1.status}`);
-  } catch (e) {
-    console.log(`❌ Ícone não acessível: ${e.message}`);
-  }
-  
-  try {
-    const response2 = await axios.head(testHeader, { timeout: 3000 });
-    console.log(`✅ Header acessível: ${response2.status}`);
-  } catch (e) {
-    console.log(`❌ Header não acessível: ${e.message}`);
-  }
-}
-
-// ============================================================
-// 18. EVENTO clientReady
+// 17. EVENTO clientReady
 // ============================================================
 let botIniciado = false;
 const flagFile = path.join(__dirname, 'bot_started.flag');
@@ -1594,9 +1536,6 @@ client.once('clientReady', async () => {
     }
 
     conquestMappings = await carregarMapeamentoConquistas();
-    
-    // 🔥 TESTE DE IMAGENS
-    await testImageUrls();
 
     console.log('🔄 Registrando comandos...');
     try {
@@ -1676,7 +1615,7 @@ client.once('clientReady', async () => {
 });
 
 // ============================================================
-// 19. COMANDO /dbstatus
+// 18. COMANDO /dbstatus
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -1731,7 +1670,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 20. COMANDO /conquista
+// 19. COMANDO /conquista
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2219,7 +2158,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 21. FALLBACK PARA BOTÕES
+// 20. FALLBACK PARA BOTÕES
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
@@ -2261,7 +2200,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 22. OUTROS COMANDOS
+// 21. OUTROS COMANDOS
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
@@ -2301,7 +2240,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 23. HEALTH CHECK PARA RAILWAY
+// 22. HEALTH CHECK PARA RAILWAY
 // ============================================================
 if (process.env.PORT) {
   try {
@@ -2323,7 +2262,7 @@ if (process.env.PORT) {
 }
 
 // ============================================================
-// 24. LOGIN
+// 23. LOGIN
 // ============================================================
 console.log('🔑 Tentando login...');
 client.login(DISCORD_TOKEN)
