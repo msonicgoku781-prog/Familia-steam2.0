@@ -1684,7 +1684,80 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 19. COMANDO /conquista
+// 19. COMANDO /quero-listar (CORRIGIDO)
+// ============================================================
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'quero-listar') {
+    // 🔥 Responde imediatamente para não dar timeout
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    
+    try {
+      const discordId = interaction.user.id;
+      const lista = await loadQueroList(discordId);
+      
+      if (!lista || lista.length === 0) {
+        await interaction.editReply({
+          content: '📭 Sua lista `/quero` está vazia! Use `/quero [jogo]` para adicionar jogos.',
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+
+      // 🔥 Se a lista for muito grande, mostra apenas os primeiros
+      const maxDisplay = 25;
+      let listaFormatada = '';
+      let totalJogos = lista.length;
+      
+      // Ordena por data de adição (mais recentes primeiro)
+      const listaOrdenada = [...lista].sort((a, b) => {
+        return new Date(b.adicionado_em) - new Date(a.adicionado_em);
+      });
+      
+      const jogosParaMostrar = listaOrdenada.slice(0, maxDisplay);
+      
+      for (let i = 0; i < jogosParaMostrar.length; i++) {
+        const jogo = jogosParaMostrar[i];
+        const numero = i + 1;
+        const status = jogo.coming_soon ? '📅 (Em breve)' : '✅ Disponível';
+        listaFormatada += `${numero}. **${jogo.nome}** ${status}\n`;
+      }
+      
+      let mensagem = `📋 **Sua lista /quero** (${totalJogos} jogos)\n\n${listaFormatada}`;
+      
+      if (totalJogos > maxDisplay) {
+        mensagem += `\n... e mais ${totalJogos - maxDisplay} jogos. Use o comando com um termo de busca para filtrar.`;
+      }
+      
+      // 🔥 Se a mensagem for muito longa, envia como arquivo
+      if (mensagem.length > 1900) {
+        const buffer = Buffer.from(mensagem, 'utf-8');
+        const attachment = new AttachmentBuilder(buffer, { name: 'lista_quero.txt' });
+        await interaction.editReply({
+          content: `📋 Sua lista /quero tem ${totalJogos} jogos.`,
+          files: [attachment],
+          flags: MessageFlags.Ephemeral
+        });
+      } else {
+        await interaction.editReply({
+          content: mensagem,
+          flags: MessageFlags.Ephemeral
+        });
+      }
+      
+    } catch (error) {
+      console.error('❌ Erro no /quero-listar:', error);
+      await interaction.editReply({
+        content: '❌ Ocorreu um erro ao listar sua lista. Tente novamente.',
+        flags: MessageFlags.Ephemeral
+      });
+    }
+  }
+});
+
+// ============================================================
+// 20. COMANDO /conquista
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2172,7 +2245,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 20. FALLBACK PARA BOTÕES
+// 21. FALLBACK PARA BOTÕES
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
@@ -2214,7 +2287,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 21. OUTROS COMANDOS
+// 22. OUTROS COMANDOS
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
@@ -2269,7 +2342,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 22. HEALTH CHECK PARA RAILWAY
+// 23. HEALTH CHECK PARA RAILWAY
 // ============================================================
 if (process.env.PORT) {
   try {
@@ -2291,7 +2364,7 @@ if (process.env.PORT) {
 }
 
 // ============================================================
-// 23. LOGIN
+// 24. LOGIN
 // ============================================================
 console.log('🔑 Tentando login...');
 client.login(DISCORD_TOKEN)
