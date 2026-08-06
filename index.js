@@ -385,7 +385,24 @@ async function adicionarQuero(discordId, appid, nome, link) {
     const detalhes = await getGameDetails(appid);
     if (detalhes && detalhes.release_date) comingSoon = detalhes.release_date.coming_soon === true;
   } catch (_) {}
-  lista.push({ appid, nome, link, adicionado_em: new Date().toISOString(), coming_soon: comingSoon, ultimoEstadoPromocao: null });
+  
+  // 🔥 VERIFICA SE ESTÁ EM PROMOÇÃO AGORA PARA MARCAR O ESTADO INICIAL
+  let emPromocao = false;
+  try {
+    const preco = await getPriceOverview(appid);
+    if (preco) {
+      emPromocao = preco.emPromocao && preco.desconto > 0;
+    }
+  } catch (_) {}
+  
+  lista.push({ 
+    appid, 
+    nome, 
+    link, 
+    adicionado_em: new Date().toISOString(), 
+    coming_soon: comingSoon,
+    ultimoEstadoPromocao: emPromocao
+  });
   await saveQueroList(discordId, lista);
   return { sucesso: true };
 }
@@ -863,7 +880,6 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
     return;
   }
   
-  // 🔥 LOG REDUZIDO - só mostra uma vez
   console.log(`🔍 [${userName}] Verificando ${gamesToCheck.length} jogo(s)...`);
 
   let channel = client.channels.cache.get(ACHIEVEMENT_CHANNEL_ID);
@@ -966,7 +982,6 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
       const faltam = totalJogo - progressoAtual;
       const nomeBonito = await getAchievementDisplayName(appid, ach.apiname);
 
-      // 🔥 BUSCA O ÍCONE DA CONQUISTA
       let iconUrl = null;
       const iconName = iconMap[ach.apiname];
       if (iconName) {
@@ -977,7 +992,6 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
         }
       }
 
-      // 🔥 BUSCA A IMAGEM DO JOGO (HEADER)
       let gameImageUrl = null;
       try {
         const detalhes = await getGameDetails(appid);
@@ -996,7 +1010,6 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
         imageToUse = gameImageUrl;
       }
 
-      // 🔥 CORREÇÃO: Se a URL tiver http:// duplicado
       if (imageToUse && imageToUse.includes('http://') && imageToUse.includes('http://', imageToUse.indexOf('http://') + 7)) {
         const parts = imageToUse.split('http://');
         imageToUse = 'http://' + parts[parts.length - 1];
@@ -1064,7 +1077,6 @@ async function checkAchievements() {
         const discordId = member.discordId;
         const mention = `<@${discordId}>`;
 
-        // 🔥 DEFINE O LIMITE POR USUÁRIO
         let limit = 12;
         if (userName === 'Gardemi') {
           limit = 6;
@@ -1080,7 +1092,6 @@ async function checkAchievements() {
           continue;
         }
 
-        // 🔥 REMOVE DUPLICATAS
         const uniqueGames = [];
         const seenAppIds = new Set();
         for (const game of recentGames) {
@@ -1118,13 +1129,12 @@ async function checkAchievements() {
 
         const jogosParaVerificar = [];
         const agora = Date.now();
-        const INTERVALO_VERIFICACAO = 5 * 60 * 1000; // 5 minutos
+        const INTERVALO_VERIFICACAO = 5 * 60 * 1000;
         
         for (const game of uniqueGames) {
           const appid = game.appid;
           const gameName = game.name || `App ${appid}`;
           
-          // 🔥 REVERIFICA JOGOS MARCADOS COMO SEM CONQUISTAS A CADA 5 MINUTOS
           if (db.jogosSemConquistas && db.jogosSemConquistas[appid]) {
             const dataMarcado = new Date(db.jogosSemConquistas[appid].data);
             const agoraDate = new Date();
@@ -1142,7 +1152,6 @@ async function checkAchievements() {
             }
           }
           
-          // 🔥 VERIFICA O INTERVALO DE 5 MINUTOS PARA TODOS OS JOGOS
           const ultimaVerificacao = db.ultimaVerificacao?.[steamId]?.[appid] || 0;
           const tempoDesdeUltimaVerificacao = (agora - ultimaVerificacao) / 1000 / 60;
           
@@ -1167,7 +1176,6 @@ async function checkAchievements() {
 
         await verificarConquistas(steamId, jogosParaVerificar, mention, userName);
 
-        // Atualiza última verificação
         if (!db.ultimaVerificacao) db.ultimaVerificacao = {};
         if (!db.ultimaVerificacao[steamId]) db.ultimaVerificacao[steamId] = {};
         for (const game of jogosParaVerificar) {
@@ -1448,7 +1456,6 @@ const client = new Client({
 
 console.log('🚀 [13] Cliente Discord criado.');
 
-// Eventos de conexão
 client.on('disconnect', (event) => {
   console.log(`🔌 Desconectado: ${event.reason || 'Motivo desconhecido'}`);
 });
@@ -1574,7 +1581,6 @@ client.once('clientReady', async () => {
       console.error('❌ Erro ao registrar comandos:', err);
     }
 
-    // Verificação do canal de conquistas
     if (ACHIEVEMENT_CHANNEL_ID) {
       console.log(`🔍 [INICIO] Verificando canal de conquistas: ${ACHIEVEMENT_CHANNEL_ID}`);
       let testChannel = client.channels.cache.get(ACHIEVEMENT_CHANNEL_ID);
@@ -1684,13 +1690,12 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 19. COMANDO /quero (CORRIGIDO)
+// 19. COMANDO /quero (CORRIGIDO - NOTIFICA PROMOÇÃO IMEDIATA)
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'quero') {
-    // 🔥 Responde imediatamente para não dar timeout
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     
     try {
@@ -1699,10 +1704,8 @@ client.on('interactionCreate', async (interaction) => {
       
       console.log(`📌 /quero - ${interaction.user.tag}: "${jogoInput}"`);
 
-      // 🔥 BUSCA O JOGO NA STEAM
       let jogoInfo = await searchGameOnSteam(jogoInput);
       
-      // Se não encontrou, tenta buscar pelo appid se for número
       if (!jogoInfo) {
         const appidMatch = jogoInput.match(/^\d+$/);
         if (appidMatch) {
@@ -1730,7 +1733,6 @@ client.on('interactionCreate', async (interaction) => {
       const nome = jogoInfo.nome;
       const link = jogoInfo.link;
 
-      // 🔥 VERIFICA SE O JOGO JÁ ESTÁ NA LISTA
       const lista = await loadQueroList(discordId);
       if (lista.some(j => j.appid === appid)) {
         await interaction.editReply({
@@ -1740,7 +1742,6 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      // 🔥 VERIFICA SE O JOGO JÁ ESTÁ NA FAMÍLIA
       let jogoNaFamilia = false;
       let dono = null;
       
@@ -1760,7 +1761,6 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      // 🔥 VERIFICA COMPATIBILIDADE
       const compat = await verificarCompatibilidadeFamilia(appid);
       if (!compat.compatível) {
         await interaction.editReply({
@@ -1769,6 +1769,16 @@ client.on('interactionCreate', async (interaction) => {
         });
         return;
       }
+
+      // 🔥 VERIFICA SE ESTÁ EM PROMOÇÃO AGORA
+      let estaEmPromocao = false;
+      let precoInfo = null;
+      try {
+        precoInfo = await getPriceOverview(appid);
+        if (precoInfo) {
+          estaEmPromocao = precoInfo.emPromocao && precoInfo.desconto > 0;
+        }
+      } catch (_) {}
 
       // 🔥 VERIFICA SE É LANÇAMENTO FUTURO
       let comingSoon = false;
@@ -1783,9 +1793,49 @@ client.on('interactionCreate', async (interaction) => {
       const resultado = await adicionarQuero(discordId, appid, nome, link);
       
       if (resultado.sucesso) {
-        const status = comingSoon ? '📅 (Lançamento futuro)' : '✅';
+        // 🔥 SE ESTIVER EM PROMOÇÃO, NOTIFICA IMEDIATAMENTE!
+        if (estaEmPromocao && precoInfo) {
+          try {
+            const embed = new EmbedBuilder()
+              .setColor(0x00FF00)
+              .setTitle(`🎉 ${nome} está em promoção!`)
+              .setURL(link)
+              .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
+              .addFields(
+                { name: '💰 Preço antigo', value: `~~${precoInfo.precoAntigo}~~`, inline: true },
+                { name: '💰 Preço atual', value: `**${precoInfo.precoAtual}**`, inline: true },
+                { name: '📉 Desconto', value: `**${precoInfo.desconto}% OFF**`, inline: true },
+                { name: '🔗 Link', value: `[Comprar na Steam](${link})`, inline: false }
+              )
+              .setFooter({ text: 'Steam Família - Promoção /quero' })
+              .setTimestamp();
+            
+            const usuario = await client.users.fetch(discordId);
+            await usuario.send({ embeds: [embed] });
+            console.log(`📨 Notificação de promoção enviada para ${interaction.user.tag} (${nome})`);
+          } catch (err) {
+            console.error(`❌ Erro ao enviar notificação de promoção:`, err.message);
+          }
+        }
+
+        // 🔥 RESPOSTA DO COMANDO
+        let mensagem = `✅ **${nome}** foi adicionado à sua lista /quero!`;
+        
+        if (comingSoon) {
+          mensagem += ` 📅 (Lançamento futuro)`;
+        }
+        
+        if (estaEmPromocao && precoInfo) {
+          mensagem += `\n\n🎉 **EM PROMOÇÃO AGORA!** (Notificação enviada por DM)`;
+          mensagem += `\n💰 De: ~~${precoInfo.precoAntigo}~~`;
+          mensagem += `\n💰 Por: **${precoInfo.precoAtual}**`;
+          mensagem += `\n📉 Desconto: **${precoInfo.desconto}% OFF**`;
+        }
+        
+        mensagem += `\n🔗 ${link}`;
+        
         await interaction.editReply({
-          content: `✅ **${nome}** foi adicionado à sua lista /quero! ${status}\n🔗 ${link}`,
+          content: mensagem,
           flags: MessageFlags.Ephemeral
         });
         console.log(`✅ /quero - ${interaction.user.tag} adicionou: ${nome} (${appid})`);
@@ -1813,7 +1863,6 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'quero-listar') {
-    // 🔥 Responde imediatamente para não dar timeout
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     
     try {
@@ -1828,12 +1877,10 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      // 🔥 Se a lista for muito grande, mostra apenas os primeiros
       const maxDisplay = 25;
       let listaFormatada = '';
       let totalJogos = lista.length;
       
-      // Ordena por data de adição (mais recentes primeiro)
       const listaOrdenada = [...lista].sort((a, b) => {
         return new Date(b.adicionado_em) - new Date(a.adicionado_em);
       });
@@ -1853,7 +1900,6 @@ client.on('interactionCreate', async (interaction) => {
         mensagem += `\n... e mais ${totalJogos - maxDisplay} jogos. Use o comando com um termo de busca para filtrar.`;
       }
       
-      // 🔥 Se a mensagem for muito longa, envia como arquivo
       if (mensagem.length > 1900) {
         const buffer = Buffer.from(mensagem, 'utf-8');
         const attachment = new AttachmentBuilder(buffer, { name: 'lista_quero.txt' });
@@ -1892,7 +1938,6 @@ client.on('interactionCreate', async (interaction) => {
       const jogoInput = interaction.options.getString('jogo').trim();
       const discordId = interaction.user.id;
       
-      // 🔥 BUSCA O JOGO NA STEAM PARA PEGAR O APPID
       let jogoInfo = await searchGameOnSteam(jogoInput);
       
       if (!jogoInfo) {
@@ -1920,7 +1965,6 @@ client.on('interactionCreate', async (interaction) => {
       const appid = jogoInfo.appid;
       const nome = jogoInfo.nome;
 
-      // 🔥 REMOVE DA LISTA
       const removido = await removerQuero(discordId, appid);
       
       if (removido) {
@@ -1958,7 +2002,6 @@ client.on('interactionCreate', async (interaction) => {
     try {
       const jogoInput = interaction.options.getString('jogo').trim();
       
-      // 🔥 BUSCA O JOGO NA STEAM
       let jogoInfo = await searchGameOnSteam(jogoInput);
       
       if (!jogoInfo) {
@@ -1988,7 +2031,6 @@ client.on('interactionCreate', async (interaction) => {
       const nome = jogoInfo.nome;
       const link = jogoInfo.link;
 
-      // 🔥 VERIFICA NA FAMÍLIA
       let encontrado = false;
       let donos = [];
       
@@ -2560,7 +2602,6 @@ client.on('interactionCreate', async (interaction) => {
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
   
-  // 🔥 NOVO COMANDO: Resetar jogos sem conquistas
   if (message.content.toLowerCase() === '!resetconquistas') {
     try {
       const quantidade = Object.keys(db.jogosSemConquistas || {}).length;
