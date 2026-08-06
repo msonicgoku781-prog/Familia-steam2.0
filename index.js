@@ -1753,7 +1753,7 @@ client.once('clientReady', async () => {
       ];
       const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
       await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-      console.log('✅ Comandos registrados');
+      console.log('✅ Comandos registrados:', commands.map(c => c.name).join(', '));
     } catch (err) {
       console.error('❌ Erro ao registrar comandos:', err);
     }
@@ -2301,7 +2301,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 25. COMANDO /conquista (RESUMIDO)
+// 25. COMANDO /conquista
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2436,8 +2436,8 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // ... resto do código do /conquista (mantido por questões de espaço)
-      // Incluir o código completo do /conquista aqui
+      // Restante do código do /conquista aqui...
+      // (mantido do código anterior)
 
     } catch (error) {
       console.error(`❌ [COMANDO] Erro crítico:`, error);
