@@ -1684,7 +1684,130 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 19. COMANDO /quero-listar (CORRIGIDO)
+// 19. COMANDO /quero (CORRIGIDO)
+// ============================================================
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'quero') {
+    // 🔥 Responde imediatamente para não dar timeout
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    
+    try {
+      const jogoInput = interaction.options.getString('jogo').trim();
+      const discordId = interaction.user.id;
+      
+      console.log(`📌 /quero - ${interaction.user.tag}: "${jogoInput}"`);
+
+      // 🔥 BUSCA O JOGO NA STEAM
+      let jogoInfo = await searchGameOnSteam(jogoInput);
+      
+      // Se não encontrou, tenta buscar pelo appid se for número
+      if (!jogoInfo) {
+        const appidMatch = jogoInput.match(/^\d+$/);
+        if (appidMatch) {
+          const detalhes = await getGameDetails(parseInt(appidMatch[0]));
+          if (detalhes) {
+            jogoInfo = {
+              appid: parseInt(appidMatch[0]),
+              nome: detalhes.name,
+              link: `https://store.steampowered.com/app/${appidMatch[0]}`,
+              capa: detalhes.header_image || `https://cdn.cloudflare.steamstatic.com/steam/apps/${appidMatch[0]}/header.jpg`
+            };
+          }
+        }
+      }
+      
+      if (!jogoInfo) {
+        await interaction.editReply({
+          content: `❌ Não encontrei o jogo **${jogoInput}** na Steam. Tente com o nome exato ou link da loja.`,
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+
+      const appid = jogoInfo.appid;
+      const nome = jogoInfo.nome;
+      const link = jogoInfo.link;
+
+      // 🔥 VERIFICA SE O JOGO JÁ ESTÁ NA LISTA
+      const lista = await loadQueroList(discordId);
+      if (lista.some(j => j.appid === appid)) {
+        await interaction.editReply({
+          content: `❌ **${nome}** já está na sua lista /quero!`,
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+
+      // 🔥 VERIFICA SE O JOGO JÁ ESTÁ NA FAMÍLIA
+      let jogoNaFamilia = false;
+      let dono = null;
+      
+      for (const sid of STEAM_IDS_ARRAY) {
+        if ((db.historicoJogos[sid] || []).includes(appid)) {
+          jogoNaFamilia = true;
+          dono = MEMBROS[sid]?.nome || sid;
+          break;
+        }
+      }
+
+      if (jogoNaFamilia) {
+        await interaction.editReply({
+          content: `⚠️ **${nome}** já está na biblioteca da família (dono: ${dono}).\n🔗 ${link}`,
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+
+      // 🔥 VERIFICA COMPATIBILIDADE
+      const compat = await verificarCompatibilidadeFamilia(appid);
+      if (!compat.compatível) {
+        await interaction.editReply({
+          content: `⚠️ **${nome}** não é compatível com Family Sharing.\nMotivo: ${compat.motivo}`,
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+
+      // 🔥 VERIFICA SE É LANÇAMENTO FUTURO
+      let comingSoon = false;
+      try {
+        const detalhes = await getGameDetails(appid);
+        if (detalhes && detalhes.release_date) {
+          comingSoon = detalhes.release_date.coming_soon === true;
+        }
+      } catch (_) {}
+
+      // 🔥 ADICIONA À LISTA
+      const resultado = await adicionarQuero(discordId, appid, nome, link);
+      
+      if (resultado.sucesso) {
+        const status = comingSoon ? '📅 (Lançamento futuro)' : '✅';
+        await interaction.editReply({
+          content: `✅ **${nome}** foi adicionado à sua lista /quero! ${status}\n🔗 ${link}`,
+          flags: MessageFlags.Ephemeral
+        });
+        console.log(`✅ /quero - ${interaction.user.tag} adicionou: ${nome} (${appid})`);
+      } else {
+        await interaction.editReply({
+          content: `❌ Erro ao adicionar **${nome}** à lista. Tente novamente.`,
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
+    } catch (error) {
+      console.error('❌ Erro no /quero:', error);
+      await interaction.editReply({
+        content: '❌ Ocorreu um erro ao processar o comando. Tente novamente.',
+        flags: MessageFlags.Ephemeral
+      });
+    }
+  }
+});
+
+// ============================================================
+// 20. COMANDO /quero-listar (CORRIGIDO)
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -1757,7 +1880,152 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 20. COMANDO /conquista
+// 21. COMANDO /quero-remover
+// ============================================================
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'quero-remover') {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    
+    try {
+      const jogoInput = interaction.options.getString('jogo').trim();
+      const discordId = interaction.user.id;
+      
+      // 🔥 BUSCA O JOGO NA STEAM PARA PEGAR O APPID
+      let jogoInfo = await searchGameOnSteam(jogoInput);
+      
+      if (!jogoInfo) {
+        const appidMatch = jogoInput.match(/^\d+$/);
+        if (appidMatch) {
+          const detalhes = await getGameDetails(parseInt(appidMatch[0]));
+          if (detalhes) {
+            jogoInfo = {
+              appid: parseInt(appidMatch[0]),
+              nome: detalhes.name,
+              link: `https://store.steampowered.com/app/${appidMatch[0]}`
+            };
+          }
+        }
+      }
+      
+      if (!jogoInfo) {
+        await interaction.editReply({
+          content: `❌ Não encontrei o jogo **${jogoInput}** na Steam.`,
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+
+      const appid = jogoInfo.appid;
+      const nome = jogoInfo.nome;
+
+      // 🔥 REMOVE DA LISTA
+      const removido = await removerQuero(discordId, appid);
+      
+      if (removido) {
+        await interaction.editReply({
+          content: `✅ **${nome}** foi removido da sua lista /quero!`,
+          flags: MessageFlags.Ephemeral
+        });
+        console.log(`✅ /quero-remover - ${interaction.user.tag} removeu: ${nome} (${appid})`);
+      } else {
+        await interaction.editReply({
+          content: `❌ **${nome}** não está na sua lista /quero.`,
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
+    } catch (error) {
+      console.error('❌ Erro no /quero-remover:', error);
+      await interaction.editReply({
+        content: '❌ Ocorreu um erro ao remover o jogo. Tente novamente.',
+        flags: MessageFlags.Ephemeral
+      });
+    }
+  }
+});
+
+// ============================================================
+// 22. COMANDO /tem
+// ============================================================
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'tem') {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    
+    try {
+      const jogoInput = interaction.options.getString('jogo').trim();
+      
+      // 🔥 BUSCA O JOGO NA STEAM
+      let jogoInfo = await searchGameOnSteam(jogoInput);
+      
+      if (!jogoInfo) {
+        const appidMatch = jogoInput.match(/^\d+$/);
+        if (appidMatch) {
+          const detalhes = await getGameDetails(parseInt(appidMatch[0]));
+          if (detalhes) {
+            jogoInfo = {
+              appid: parseInt(appidMatch[0]),
+              nome: detalhes.name,
+              link: `https://store.steampowered.com/app/${appidMatch[0]}`,
+              capa: detalhes.header_image || `https://cdn.cloudflare.steamstatic.com/steam/apps/${appidMatch[0]}/header.jpg`
+            };
+          }
+        }
+      }
+      
+      if (!jogoInfo) {
+        await interaction.editReply({
+          content: `❌ Não encontrei o jogo **${jogoInput}** na Steam.`,
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+
+      const appid = jogoInfo.appid;
+      const nome = jogoInfo.nome;
+      const link = jogoInfo.link;
+
+      // 🔥 VERIFICA NA FAMÍLIA
+      let encontrado = false;
+      let donos = [];
+      
+      for (const sid of STEAM_IDS_ARRAY) {
+        if ((db.historicoJogos[sid] || []).includes(appid)) {
+          encontrado = true;
+          const member = MEMBROS[sid];
+          if (member) {
+            donos.push(member.nome);
+          }
+        }
+      }
+
+      if (encontrado) {
+        await interaction.editReply({
+          content: `✅ **${nome}** está na biblioteca da família!\n👥 Dono(s): ${donos.join(', ')}\n🔗 ${link}`,
+          flags: MessageFlags.Ephemeral
+        });
+      } else {
+        await interaction.editReply({
+          content: `❌ **${nome}** NÃO está na biblioteca da família.`,
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
+    } catch (error) {
+      console.error('❌ Erro no /tem:', error);
+      await interaction.editReply({
+        content: '❌ Ocorreu um erro ao verificar o jogo. Tente novamente.',
+        flags: MessageFlags.Ephemeral
+      });
+    }
+  }
+});
+
+// ============================================================
+// 23. COMANDO /conquista
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2245,7 +2513,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 21. FALLBACK PARA BOTÕES
+// 24. FALLBACK PARA BOTÕES
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
@@ -2287,7 +2555,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 22. OUTROS COMANDOS
+// 25. OUTROS COMANDOS
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
@@ -2342,7 +2610,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 23. HEALTH CHECK PARA RAILWAY
+// 26. HEALTH CHECK PARA RAILWAY
 // ============================================================
 if (process.env.PORT) {
   try {
@@ -2364,7 +2632,7 @@ if (process.env.PORT) {
 }
 
 // ============================================================
-// 24. LOGIN
+// 27. LOGIN
 // ============================================================
 console.log('🔑 Tentando login...');
 client.login(DISCORD_TOKEN)
