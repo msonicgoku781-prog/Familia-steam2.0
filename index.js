@@ -456,11 +456,16 @@ async function saveWishlist(discordId, list) {
 
 async function syncWishlistFromSteam(steamId, discordId) {
   try {
-    console.log(`🔄 Sincronizando wishlist da Steam para ${MEMBROS[steamId]?.nome || steamId}...`);
+    console.log(`🔄 Sincronizando wishlist da Steam para ${MEMBROS[steamId]?.nome || steamId} (steamId: ${steamId})...`);
     
     const wishlist = await getSteamWishlist(steamId);
     
     if (!wishlist || wishlist.length === 0) {
+      const existing = await loadWishlist(discordId);
+      if (existing && existing.length > 0) {
+        console.log(`⚠️ Wishlist vazia da Steam, mas mantendo a salva (${existing.length} jogos)`);
+        return true;
+      }
       console.log(`ℹ️ Wishlist vazia ou privada para ${steamId}`);
       return false;
     }
@@ -626,20 +631,25 @@ async function getCurrentGame(steamId) {
 }
 
 // ============================================================
-// 6.1 FUNÇÃO PARA BUSCAR WISHLIST DA STEAM
+// 6.1 FUNÇÃO PARA BUSCAR WISHLIST DA STEAM (CORRIGIDA)
 // ============================================================
 async function getSteamWishlist(steamId) {
   try {
     const url = `https://store.steampowered.com/wishlist/profiles/${steamId}/wishlistdata/`;
+    console.log(`🔍 Buscando wishlist: ${url}`);
+    
     const response = await axios.get(url, {
       params: {
         l: 'portuguese',
         v: '1'
       },
-      timeout: 10000
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
     });
     
-    if (response.data) {
+    if (response.data && typeof response.data === 'object') {
       const wishlist = [];
       for (const [appid, data] of Object.entries(response.data)) {
         if (data && data.name) {
@@ -650,11 +660,18 @@ async function getSteamWishlist(steamId) {
           });
         }
       }
+      console.log(`📋 Wishlist encontrada: ${wishlist.length} jogos`);
       return wishlist;
     }
     return [];
   } catch (error) {
-    console.log(`ℹ️ Não foi possível acessar a wishlist de ${steamId} (pode ser privada)`);
+    if (error.response && error.response.status === 404) {
+      console.log(`❌ Wishlist não encontrada (404) para ${steamId}`);
+    } else if (error.response && error.response.status === 403) {
+      console.log(`🔒 Wishlist privada (403) para ${steamId}`);
+    } else {
+      console.log(`⚠️ Erro ao acessar wishlist: ${error.message}`);
+    }
     return [];
   }
 }
@@ -1168,7 +1185,6 @@ async function verificarJogosWishlistComprados(steamId, newGames, comprador) {
       
       const discordId = member.discordId;
       
-      // 🔥 CARREGA A WISHLIST SALVA NO CANAL
       const wishlist = await loadWishlist(discordId);
       if (!wishlist || wishlist.length === 0) {
         console.log(`ℹ️ ${member.nome} não tem wishlist salva`);
@@ -1913,7 +1929,7 @@ client.on('interactionCreate', async (interaction) => {
         });
       } else {
         await interaction.editReply({
-          content: `❌ Não foi possível sincronizar sua wishlist. Verifique se ela está pública na Steam.`,
+          content: `❌ Não foi possível sincronizar sua wishlist. Verifique se ela está pública na Steam ou tente novamente mais tarde.`,
           flags: MessageFlags.Ephemeral
         });
       }
@@ -1921,7 +1937,7 @@ client.on('interactionCreate', async (interaction) => {
     } catch (error) {
       console.error('❌ Erro no /wishlist-sync:', error);
       await interaction.editReply({
-        content: '❌ Ocorreu um erro ao sincronizar a wishlist.',
+        content: '❌ Ocorreu um erro ao sincronizar a wishlist. Tente novamente.',
         flags: MessageFlags.Ephemeral
       });
     }
@@ -2436,8 +2452,8 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // Restante do código do /conquista aqui...
-      // (mantido do código anterior)
+      // Restante do código do /conquista (mesmo de antes)
+      // ... (mantido do código anterior)
 
     } catch (error) {
       console.error(`❌ [COMANDO] Erro crítico:`, error);
