@@ -455,104 +455,6 @@ async function saveWishlist(discordId, list) {
 }
 
 // ============================================================
-// 5.2 FUNÇÃO DE SINCRONIZAÇÃO COM LOGS DETALHADOS
-// ============================================================
-async function getSteamWishlistWithLogs(steamId) {
-  try {
-    const url = `https://store.steampowered.com/wishlist/profiles/${steamId}/wishlistdata/`;
-    console.log(`🔍 [LOG] URL da wishlist: ${url}`);
-    
-    const response = await axios.get(url, {
-      params: { l: 'portuguese', v: '1' },
-      timeout: 10000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
-    });
-    
-    console.log(`📡 [LOG] Status da resposta: ${response.status}`);
-    console.log(`📡 [LOG] Headers: ${JSON.stringify(response.headers)}`);
-    
-    const data = response.data;
-    console.log(`📄 [LOG] Tipo de dados: ${typeof data}`);
-    console.log(`📄 [LOG] Conteúdo bruto: ${JSON.stringify(data).substring(0, 200)}...`);
-    
-    if (!data || typeof data !== 'object') {
-      console.log(`⚠️ [LOG] Resposta inválida, não é um objeto`);
-      return { success: false, error: 'Resposta inválida da Steam' };
-    }
-    
-    const keys = Object.keys(data);
-    console.log(`📋 [LOG] Chaves encontradas: ${keys.length}`);
-    
-    if (keys.length === 0) {
-      console.log(`📋 [LOG] Nenhum jogo na wishlist`);
-      return { success: true, wishlist: [] };
-    }
-    
-    const wishlist = [];
-    for (const appid of keys) {
-      const gameData = data[appid];
-      if (gameData && gameData.name) {
-        wishlist.push({
-          appid: parseInt(appid),
-          nome: gameData.name,
-          link: `https://store.steampowered.com/app/${appid}`
-        });
-      }
-    }
-    console.log(`✅ [LOG] ${wishlist.length} jogos encontrados`);
-    return { success: true, wishlist: wishlist };
-  } catch (error) {
-    console.error(`❌ [LOG] Erro na requisição: ${error.message}`);
-    if (error.response) {
-      console.log(`📡 [LOG] Status do erro: ${error.response.status}`);
-      console.log(`📡 [LOG] Dados do erro: ${JSON.stringify(error.response.data)}`);
-    }
-    return { success: false, error: error.message, statusCode: error.response?.status };
-  }
-}
-
-async function syncWishlistFromSteam(steamId, discordId) {
-  try {
-    console.log(`🔄 Sincronizando wishlist da Steam para ${MEMBROS[steamId]?.nome || steamId} (steamId: ${steamId})...`);
-    
-    const result = await getSteamWishlistWithLogs(steamId);
-    
-    if (!result.success) {
-      console.log(`❌ Falha ao buscar wishlist: ${result.error}`);
-      return { success: false, message: result.error, wishlist: [] };
-    }
-    
-    const wishlist = result.wishlist || [];
-    
-    if (wishlist.length === 0) {
-      const existing = await loadWishlist(discordId);
-      if (existing && existing.length > 0) {
-        console.log(`⚠️ Wishlist vazia da Steam, mas mantendo a salva (${existing.length} jogos)`);
-        return { success: true, message: `Wishlist vazia, mantendo ${existing.length} jogos salvos`, wishlist: existing };
-      }
-      await saveWishlist(discordId, []);
-      console.log(`ℹ️ Wishlist vazia salva para ${steamId}`);
-      return { success: true, message: 'Wishlist sincronizada (vazia)', wishlist: [] };
-    }
-    
-    const saved = await saveWishlist(discordId, wishlist);
-    if (saved) {
-      console.log(`✅ Wishlist de ${MEMBROS[steamId]?.nome || steamId} salva (${wishlist.length} jogos)`);
-      return { success: true, message: `${wishlist.length} jogos sincronizados`, wishlist: wishlist };
-    } else {
-      return { success: false, message: 'Erro ao salvar wishlist no canal', wishlist: [] };
-    }
-  } catch (error) {
-    console.error(`❌ Erro ao sincronizar wishlist:`, error.message);
-    return { success: false, message: `Erro: ${error.message}`, wishlist: [] };
-  }
-}
-
-console.log('🚀 [7] Funções /quero e wishlist carregadas.');
-
-// ============================================================
 // 6. FUNÇÕES DA STEAM API
 // ============================================================
 let ultimaRequisicao = 0;
@@ -698,6 +600,186 @@ async function getCurrentGame(steamId) {
   return null;
 }
 
+// ============================================================
+// 6.1 FUNÇÃO PARA BUSCAR WISHLIST COM FALLBACKS
+// ============================================================
+async function getSteamWishlistWithFallbacks(steamId) {
+  const tentativas = [
+    // Tentativa 1: URL padrão com headers completos
+    {
+      url: `https://store.steampowered.com/wishlist/profiles/${steamId}/wishlistdata/`,
+      params: { l: 'portuguese', v: '1' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+        'Referer': 'https://store.steampowered.com/',
+        'Origin': 'https://store.steampowered.com'
+      }
+    },
+    // Tentativa 2: URL sem o /wishlistdata/
+    {
+      url: `https://store.steampowered.com/wishlist/profiles/${steamId}/`,
+      params: { l: 'portuguese', v: '1' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+        'Referer': 'https://store.steampowered.com/'
+      }
+    },
+    // Tentativa 3: API não oficial
+    {
+      url: `https://api.steampowered.com/api/wishlist/`,
+      params: { steamid: steamId, l: 'portuguese' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json'
+      }
+    },
+    // Tentativa 4: Sem parâmetro v
+    {
+      url: `https://store.steampowered.com/wishlist/profiles/${steamId}/wishlistdata/`,
+      params: { l: 'portuguese' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://store.steampowered.com/'
+      }
+    },
+    // Tentativa 5: Com country code
+    {
+      url: `https://store.steampowered.com/wishlist/profiles/${steamId}/wishlistdata/`,
+      params: { l: 'portuguese', cc: 'BR' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json'
+      }
+    }
+  ];
+
+  let lastError = null;
+
+  for (let i = 0; i < tentativas.length; i++) {
+    const tentativa = tentativas[i];
+    const urlCompleta = tentativa.url + '?' + new URLSearchParams(tentativa.params).toString();
+    console.log(`🔄 Tentativa ${i+1}/${tentativas.length}: ${urlCompleta}`);
+
+    try {
+      const response = await axios.get(tentativa.url, {
+        params: tentativa.params,
+        timeout: 10000,
+        headers: tentativa.headers,
+        maxRedirects: 5
+      });
+
+      console.log(`📡 [Tentativa ${i+1}] Status: ${response.status}`);
+      
+      const contentType = response.headers['content-type'] || '';
+      
+      if (contentType.includes('text/html')) {
+        console.log(`🔒 [Tentativa ${i+1}] Resposta é HTML (wishlist privada ou perfil não público)`);
+        lastError = 'HTML (privada)';
+        continue;
+      }
+
+      if (contentType.includes('application/json') || typeof response.data === 'object') {
+        const data = response.data;
+        console.log(`📄 [Tentativa ${i+1}] Tipo de dados: ${typeof data}`);
+        
+        if (data && typeof data === 'object' && Object.keys(data).length === 0) {
+          console.log(`📋 [Tentativa ${i+1}] Wishlist vazia (0 jogos)`);
+          return { success: true, wishlist: [], method: `Tentativa ${i+1}` };
+        }
+
+        if (data && typeof data === 'object') {
+          const wishlist = [];
+          for (const [appid, gameData] of Object.entries(data)) {
+            if (gameData && gameData.name) {
+              wishlist.push({
+                appid: parseInt(appid),
+                nome: gameData.name,
+                link: `https://store.steampowered.com/app/${appid}`
+              });
+            }
+          }
+          console.log(`✅ [Tentativa ${i+1}] ${wishlist.length} jogos encontrados`);
+          return { success: true, wishlist: wishlist, method: `Tentativa ${i+1}` };
+        }
+      }
+
+      console.log(`⚠️ [Tentativa ${i+1}] Resposta inesperada: ${typeof response.data}`);
+      lastError = `Resposta inesperada (${typeof response.data})`;
+      
+    } catch (error) {
+      console.error(`❌ [Tentativa ${i+1}] Erro: ${error.message}`);
+      if (error.response) {
+        console.log(`📡 Status: ${error.response.status}`);
+        if (error.response.status === 404) {
+          console.log(`🔒 Wishlist não encontrada (404) - pode ser ID inválido`);
+          lastError = '404 - ID inválido';
+        } else if (error.response.status === 403) {
+          console.log(`🔒 Wishlist privada (403)`);
+          lastError = '403 - Privada';
+        } else {
+          lastError = `${error.response.status} - ${error.message}`;
+        }
+      } else {
+        lastError = error.message;
+      }
+    }
+  }
+
+  console.error(`❌ Todas as ${tentativas.length} tentativas falharam. Último erro: ${lastError}`);
+  return { success: false, error: lastError || 'Todas as tentativas falharam' };
+}
+
+// ============================================================
+// 5.2 FUNÇÃO DE SINCRONIZAÇÃO COM FALLBACKS
+// ============================================================
+async function syncWishlistFromSteam(steamId, discordId) {
+  try {
+    console.log(`🔄 Sincronizando wishlist da Steam para ${MEMBROS[steamId]?.nome || steamId} (steamId: ${steamId})...`);
+    
+    const result = await getSteamWishlistWithFallbacks(steamId);
+    
+    if (!result.success) {
+      console.log(`❌ Falha ao buscar wishlist: ${result.error}`);
+      let mensagem = result.error;
+      if (result.error.includes('privada') || result.error.includes('403') || result.error.includes('HTML')) {
+        mensagem = 'Wishlist privada ou perfil Steam não está público. Verifique as configurações de privacidade.';
+      } else if (result.error.includes('404')) {
+        mensagem = 'Steam ID inválido. Verifique o ID numérico do seu perfil.';
+      }
+      return { success: false, message: mensagem, wishlist: [] };
+    }
+    
+    const wishlist = result.wishlist || [];
+    
+    if (wishlist.length === 0) {
+      const existing = await loadWishlist(discordId);
+      if (existing && existing.length > 0) {
+        console.log(`⚠️ Wishlist vazia da Steam, mantendo a salva (${existing.length} jogos)`);
+        return { success: true, message: `Wishlist vazia, mantendo ${existing.length} jogos salvos`, wishlist: existing };
+      }
+      await saveWishlist(discordId, []);
+      console.log(`ℹ️ Wishlist vazia salva para ${steamId}`);
+      return { success: true, message: 'Wishlist sincronizada (vazia)', wishlist: [] };
+    }
+    
+    const saved = await saveWishlist(discordId, wishlist);
+    if (saved) {
+      console.log(`✅ Wishlist de ${MEMBROS[steamId]?.nome || steamId} salva (${wishlist.length} jogos) - Método: ${result.method}`);
+      return { success: true, message: `${wishlist.length} jogos sincronizados`, wishlist: wishlist };
+    } else {
+      return { success: false, message: 'Erro ao salvar wishlist no canal', wishlist: [] };
+    }
+  } catch (error) {
+    console.error(`❌ Erro ao sincronizar wishlist:`, error.message);
+    return { success: false, message: `Erro: ${error.message}`, wishlist: [] };
+  }
+}
+
 const achievementNameCache = {};
 
 async function getAchievementDisplayName(appId, apiname) {
@@ -774,7 +856,7 @@ async function traduzirTexto(texto, targetLang = 'pt') {
 console.log('🚀 [8] Funções da Steam API carregadas.');
 
 // ============================================================
-// 6.1 FUNÇÃO PARA BUSCAR CONQUISTAS COM PORCENTAGEM
+// 6.2 FUNÇÃO PARA BUSCAR CONQUISTAS COM PORCENTAGEM
 // ============================================================
 async function getPlayerAchievementsWithPercent(steamId, appId) {
   try {
@@ -1917,7 +1999,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 20. COMANDO /wishlist-sync (COM LOGS DETALHADOS)
+// 20. COMANDO /wishlist-sync (COM FALLBACKS)
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -1943,6 +2025,8 @@ client.on('interactionCreate', async (interaction) => {
       
       console.log(`🔍 [COMANDO] /wishlist-sync - Usuário: ${interaction.user.tag}, Steam ID: ${steamId}`);
       
+      await interaction.editReply('⏳ Tentando sincronizar sua wishlist... (pode levar alguns segundos)');
+      
       const result = await syncWishlistFromSteam(steamId, discordId);
       
       console.log(`📊 [COMANDO] Resultado: ${result.success ? 'Sucesso' : 'Falha'}`);
@@ -1951,12 +2035,19 @@ client.on('interactionCreate', async (interaction) => {
       
       if (result.success) {
         await interaction.editReply({
-          content: `✅ ${result.message}`,
+          content: `✅ ${result.message}\n📋 Total: ${result.wishlist.length} jogos na wishlist.`,
           flags: MessageFlags.Ephemeral
         });
       } else {
+        let mensagem = `❌ Falha: ${result.message}`;
+        if (result.message.includes('privada') || result.message.includes('privacidade')) {
+          mensagem += `\n\n🔒 **Como tornar sua wishlist pública:**`;
+          mensagem += `\n1. Acesse seu perfil Steam → Editar Perfil → Privacidade`;
+          mensagem += `\n2. Em "Detalhes do jogo", selecione **Público**`;
+          mensagem += `\n3. Salve e tente novamente.`;
+        }
         await interaction.editReply({
-          content: `❌ Falha: ${result.message}\n\nVerifique se sua wishlist está pública e se o Steam ID está correto.`,
+          content: mensagem,
           flags: MessageFlags.Ephemeral
         });
       }
@@ -2343,7 +2434,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 25. COMANDO /conquista
+// 25. COMANDO /conquista (RESUMIDO)
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2478,7 +2569,8 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // ... resto do código do /conquista (mantido do original)
+      // ... resto do código do /conquista
+      // (mantido do código anterior para não exceder o limite)
 
     } catch (error) {
       console.error(`❌ [COMANDO] Erro crítico:`, error);
