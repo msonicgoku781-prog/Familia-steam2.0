@@ -1050,7 +1050,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 }
 
 // ============================================================
-// 11. checkAchievements - 12 JOGOS (GARDEMI = 6) - CORRIGIDO
+// 11. checkAchievements - COM REVERIFICAÇÃO A CADA 5 MINUTOS
 // ============================================================
 async function checkAchievements() {
   console.log(`🔍 [checkAchievements] Verificando conquistas da família...`);
@@ -1065,10 +1065,10 @@ async function checkAchievements() {
         const mention = `<@${discordId}>`;
 
         // 🔥 DEFINE O LIMITE POR USUÁRIO
-        let limit = 12; // Padrão: 12 jogos
+        let limit = 12;
         if (userName === 'Gardemi') {
-          limit = 6; // Gardemi: apenas 6 jogos
-          console.log(`📊 [${userName}] Buscando APENAS ${limit} jogos recentes (limite personalizado)...`);
+          limit = 6;
+          console.log(`📊 [${userName}] Buscando APENAS ${limit} jogos recentes...`);
         } else {
           console.log(`📊 [${userName}] Buscando ${limit} jogos recentes...`);
         }
@@ -1118,42 +1118,56 @@ async function checkAchievements() {
 
         const jogosParaVerificar = [];
         const agora = Date.now();
-        const INTERVALO_VERIFICACAO = 5 * 60 * 1000;
+        const INTERVALO_VERIFICACAO = 5 * 60 * 1000; // 5 minutos
         
         for (const game of uniqueGames) {
           const appid = game.appid;
+          const gameName = game.name || `App ${appid}`;
           
+          // 🔥 REVERIFICA JOGOS MARCADOS COMO SEM CONQUISTAS A CADA 5 MINUTOS
           if (db.jogosSemConquistas && db.jogosSemConquistas[appid]) {
-            console.log(`   ℹ️ ${game.name || `App ${appid}`} já foi marcado como sem conquistas. Ignorando.`);
-            continue;
+            const dataMarcado = new Date(db.jogosSemConquistas[appid].data);
+            const agoraDate = new Date();
+            const diffMs = agoraDate - dataMarcado;
+            const diffMin = diffMs / (1000 * 60);
+            
+            if (diffMin >= 5) {
+              console.log(`   🔄 ${gameName} - Reverificando (marcado há ${diffMin.toFixed(1)} minutos)`);
+              delete db.jogosSemConquistas[appid];
+              await salvarDBNoCanal();
+            } else {
+              const tempoRestante = 5 - diffMin;
+              console.log(`   ⏳ ${gameName} - Aguardando ${tempoRestante.toFixed(1)} min para reverificar`);
+              continue;
+            }
           }
           
+          // 🔥 VERIFICA O INTERVALO DE 5 MINUTOS PARA TODOS OS JOGOS
           const ultimaVerificacao = db.ultimaVerificacao?.[steamId]?.[appid] || 0;
           const tempoDesdeUltimaVerificacao = (agora - ultimaVerificacao) / 1000 / 60;
           
-          console.log(`   ⏱️ ${game.name || `App ${appid}`}: Última verificação há ${tempoDesdeUltimaVerificacao.toFixed(1)} minutos`);
-          
           if (agora - ultimaVerificacao > INTERVALO_VERIFICACAO) {
             jogosParaVerificar.push(game);
-            console.log(`   ✅ Será verificado agora`);
+            console.log(`   ✅ ${gameName} - Será verificado agora`);
           } else {
             const tempoRestante = ((INTERVALO_VERIFICACAO - (agora - ultimaVerificacao)) / 1000 / 60);
-            console.log(`   ⏳ Aguardando ${tempoRestante.toFixed(1)} minutos`);
+            console.log(`   ⏳ ${gameName} - Próxima verificação em ${tempoRestante.toFixed(1)} min`);
           }
         }
 
         if (jogosParaVerificar.length === 0) {
-          console.log(`ℹ️ ${userName} - Todos os jogos recentes já foram verificados recentemente.`);
+          console.log(`ℹ️ ${userName} - Nenhum jogo para verificar agora.`);
           continue;
         }
 
         console.log(`📊 ${userName} - Verificando ${jogosParaVerificar.length} jogos:`);
         for (const game of jogosParaVerificar) {
-          console.log(`   🎮 ${game.name || `App ${game.appid}`} (${game.appid})`);
+          console.log(`   🎯 ${game.name || `App ${game.appid}`} (${game.appid})`);
         }
 
         await verificarConquistas(steamId, jogosParaVerificar, mention, userName);
 
+        // Atualiza última verificação
         if (!db.ultimaVerificacao) db.ultimaVerificacao = {};
         if (!db.ultimaVerificacao[steamId]) db.ultimaVerificacao[steamId] = {};
         for (const game of jogosParaVerificar) {
@@ -2204,26 +2218,41 @@ client.on('interactionCreate', async (interaction) => {
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
-  if (message.content.toLowerCase() !== '!resetranking') return;
-
-  await message.reply('⚠️ Tem certeza? Digite `!confirmar` em 30 segundos.');
-  const collector = message.channel.createMessageCollector({
-    filter: m => m.author.id === DONO_ID && m.content.toLowerCase() === '!confirmar',
-    max: 1,
-    time: 30000
-  });
-  collector.on('collect', async () => {
-    for (const sid of STEAM_IDS_ARRAY) {
-      if (db.ranking[sid]) db.ranking[sid].jogos = 0;
+  
+  // 🔥 NOVO COMANDO: Resetar jogos sem conquistas
+  if (message.content.toLowerCase() === '!resetconquistas') {
+    try {
+      const quantidade = Object.keys(db.jogosSemConquistas || {}).length;
+      db.jogosSemConquistas = {};
+      await salvarDBNoCanal();
+      await message.reply(`✅ Cache de jogos sem conquistas resetado! ${quantidade} jogos serão reverificados.`);
+      console.log(`🔄 Cache de jogos sem conquistas resetado por ${message.author.tag}`);
+    } catch (error) {
+      await message.reply(`❌ Erro ao resetar: ${error.message}`);
     }
-    db.rankingVersion = RANKING_VERSION;
-    await salvarDBNoCanal();
-    await enviarRanking();
-    await message.reply('✅ Ranking resetado.');
-  });
-  collector.on('end', collected => {
-    if (collected.size === 0) message.reply('⏰ Cancelado.');
-  });
+    return;
+  }
+  
+  if (message.content.toLowerCase() === '!resetranking') {
+    await message.reply('⚠️ Tem certeza? Digite `!confirmar` em 30 segundos.');
+    const collector = message.channel.createMessageCollector({
+      filter: m => m.author.id === DONO_ID && m.content.toLowerCase() === '!confirmar',
+      max: 1,
+      time: 30000
+    });
+    collector.on('collect', async () => {
+      for (const sid of STEAM_IDS_ARRAY) {
+        if (db.ranking[sid]) db.ranking[sid].jogos = 0;
+      }
+      db.rankingVersion = RANKING_VERSION;
+      await salvarDBNoCanal();
+      await enviarRanking();
+      await message.reply('✅ Ranking resetado.');
+    });
+    collector.on('end', collected => {
+      if (collected.size === 0) message.reply('⏰ Cancelado.');
+    });
+  }
 });
 
 client.on('interactionCreate', async (interaction) => {
