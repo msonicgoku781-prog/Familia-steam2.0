@@ -159,6 +159,9 @@ async function carregarDBDoCanal() {
   return null;
 }
 
+// ============================================================
+// 4.1 FUNÇÃO CORRIGIDA: SALVAR DB (APENAS UMA MENSAGEM)
+// ============================================================
 async function salvarDBNoCanal() {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
   if (!channel) {
@@ -166,49 +169,78 @@ async function salvarDBNoCanal() {
     return false;
   }
   try {
+    // Busca todas as mensagens DB_FILE
     const messages = await channel.messages.fetch({ limit: 100 });
     const dbMessages = messages.filter(m => m.content === 'DB_FILE' && m.attachments.size > 0);
     
-    for (const [, msg] of dbMessages) {
-      if (msg.id !== dbMessageId) {
+    // Se não houver nenhuma, cria uma nova
+    if (dbMessages.size === 0) {
+      const jsonData = JSON.stringify(db, null, 2);
+      const buffer = Buffer.from(jsonData, 'utf-8');
+      const attachment = new AttachmentBuilder(buffer, { name: 'db.json' });
+      const novaMsg = await channel.send({
+        content: 'DB_FILE',
+        files: [attachment]
+      });
+      dbMessageId = novaMsg.id;
+      console.log('✅ Banco de dados salvo (nova mensagem criada)');
+      return true;
+    }
+
+    // Se houver mais de uma, deleta todas e cria uma nova
+    if (dbMessages.size > 1) {
+      console.log(`⚠️ Encontradas ${dbMessages.size} mensagens DB_FILE. Deletando todas e criando uma nova...`);
+      for (const [, msg] of dbMessages) {
         try {
           await msg.delete();
-          console.log(`🗑️ Mensagem DB_FILE antiga deletada: ${msg.id}`);
         } catch (e) {
           console.log(`⚠️ Não foi possível deletar mensagem ${msg.id}: ${e.message}`);
         }
       }
+      const jsonData = JSON.stringify(db, null, 2);
+      const buffer = Buffer.from(jsonData, 'utf-8');
+      const attachment = new AttachmentBuilder(buffer, { name: 'db.json' });
+      const novaMsg = await channel.send({
+        content: 'DB_FILE',
+        files: [attachment]
+      });
+      dbMessageId = novaMsg.id;
+      console.log('✅ Banco de dados salvo (nova mensagem criada após limpeza)');
+      return true;
     }
 
-    if (dbMessageId) {
+    // Se há exatamente uma, verifica se é a que temos guardada ou atualiza
+    const existingMsg = dbMessages.first();
+    if (dbMessageId && dbMessageId === existingMsg.id) {
+      // Edita a mensagem existente
+      const jsonData = JSON.stringify(db, null, 2);
+      const buffer = Buffer.from(jsonData, 'utf-8');
+      const attachment = new AttachmentBuilder(buffer, { name: 'db.json' });
+      await existingMsg.edit({
+        content: 'DB_FILE',
+        files: [attachment]
+      });
+      console.log('✅ Banco de dados atualizado (mensagem editada)');
+      return true;
+    } else {
+      // Se o ID guardado não corresponde, deleta a existente e cria nova
+      console.log(`⚠️ ID guardado (${dbMessageId}) não corresponde à mensagem encontrada (${existingMsg.id}). Recriando...`);
       try {
-        const antiga = await channel.messages.fetch(dbMessageId);
-        if (antiga) {
-          const jsonData = JSON.stringify(db, null, 2);
-          const buffer = Buffer.from(jsonData, 'utf-8');
-          const attachment = new AttachmentBuilder(buffer, { name: 'db.json' });
-          await antiga.edit({
-            content: 'DB_FILE',
-            files: [attachment]
-          });
-          console.log('✅ Banco de dados atualizado (mensagem editada)');
-          return true;
-        }
-      } catch (_) {
-        dbMessageId = null;
+        await existingMsg.delete();
+      } catch (e) {
+        console.log(`⚠️ Não foi possível deletar mensagem ${existingMsg.id}: ${e.message}`);
       }
+      const jsonData = JSON.stringify(db, null, 2);
+      const buffer = Buffer.from(jsonData, 'utf-8');
+      const attachment = new AttachmentBuilder(buffer, { name: 'db.json' });
+      const novaMsg = await channel.send({
+        content: 'DB_FILE',
+        files: [attachment]
+      });
+      dbMessageId = novaMsg.id;
+      console.log('✅ Banco de dados salvo (nova mensagem criada após correção)');
+      return true;
     }
-
-    const jsonData = JSON.stringify(db, null, 2);
-    const buffer = Buffer.from(jsonData, 'utf-8');
-    const attachment = new AttachmentBuilder(buffer, { name: 'db.json' });
-    const novaMsg = await channel.send({
-      content: 'DB_FILE',
-      files: [attachment]
-    });
-    dbMessageId = novaMsg.id;
-    console.log('✅ Banco de dados salvo (nova mensagem criada)');
-    return true;
   } catch (e) {
     console.error('❌ Erro ao salvar banco no anexo:', e);
     return false;
@@ -253,7 +285,7 @@ async function inicializarDB() {
 }
 
 // ============================================================
-// 4.1 CACHE DE VÍDEOS
+// 4.2 CACHE DE VÍDEOS (mantido igual)
 // ============================================================
 async function carregarVideoCache() {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
@@ -279,6 +311,9 @@ async function carregarVideoCache() {
   }
 }
 
+// ============================================================
+// 4.3 SALVAR CACHE DE VÍDEOS (mantido igual)
+// ============================================================
 async function salvarVideoCache() {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
   if (!channel) return false;
@@ -351,7 +386,7 @@ async function saveVideoToCache(jogo, conquista, videoInfo) {
 console.log('🚀 [6] Funções de banco de dados e cache definidas.');
 
 // ============================================================
-// 5. FUNÇÕES DE LISTA /quero
+// 5. FUNÇÕES DE LISTA /quero (mantido)
 // ============================================================
 async function getQueroMessage(discordId) {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
@@ -472,7 +507,7 @@ async function saveWishlistLink(discordId, link) {
 console.log('🚀 [7] Funções /quero e wishlist carregadas.');
 
 // ============================================================
-// 6. FUNÇÕES DA STEAM API
+// 6. FUNÇÕES DA STEAM API (mantido)
 // ============================================================
 let ultimaRequisicao = 0;
 const MIN_INTERVALO = 1500;
