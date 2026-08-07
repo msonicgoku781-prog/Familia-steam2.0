@@ -1789,7 +1789,7 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
 console.log('🚀 [16] Função de busca de vídeos carregada.');
 
 // ============================================================
-// 17. CLIENT DISCORD
+// 17. CLIENT DISCORD (COM LOGS DE DEBUG)
 // ============================================================
 const client = new Client({
   intents: [
@@ -1801,16 +1801,15 @@ const client = new Client({
 
 console.log('🚀 [17] Cliente Discord criado.');
 
+// 🔥 LOGS DE DEBUG PARA DIAGNÓSTICO
+client.on('debug', (info) => console.log(`🐛 [DEBUG] ${info}`));
+client.on('warn', (info) => console.warn(`⚠️ [WARN] ${info}`));
+client.on('error', (error) => console.error('❌ [ERROR]', error));
 client.on('disconnect', (event) => {
   console.log(`🔌 Desconectado: ${event.reason || 'Motivo desconhecido'}`);
 });
-
 client.on('reconnecting', () => {
   console.log('🔄 Tentando reconectar...');
-});
-
-client.on('error', (error) => {
-  console.error('❌ Erro no cliente Discord:', error.message);
 });
 
 // ============================================================
@@ -1867,12 +1866,13 @@ async function carregarMapeamentoDoCanal(channel) {
 }
 
 // ============================================================
-// 19. EVENTO clientReady
+// 19. EVENTO clientReady (COM LOG ADICIONAL)
 // ============================================================
 let botIniciado = false;
 const flagFile = path.join(__dirname, 'bot_started.flag');
 
 client.once('clientReady', async () => {
+  console.log('✅ clientReady DISPARADO!'); // <-- LOG ADICIONAL
   console.log(`✅ Bot online como ${client.user.tag}`);
   console.log(`📋 Banco de dados armazenado como anexo no canal: <#${QUERO_CHANNEL}>`);
   console.log(`📢 ACHIEVEMENT_CHANNEL_ID configurado: ${ACHIEVEMENT_CHANNEL_ID || 'NÃO DEFINIDO'}`);
@@ -1976,7 +1976,7 @@ client.once('clientReady', async () => {
     }
 
   } catch (err) {
-    console.error('❌ ERRO FATAL:', err);
+    console.error('❌ ERRO FATAL NO clientReady:', err);
   }
 });
 
@@ -2048,7 +2048,6 @@ client.on('interactionCreate', async (interaction) => {
       const link = interaction.options.getString('link').trim();
       const discordId = interaction.user.id;
       
-      // Validação básica do link
       if (!link.includes('steampowered.com/wishlist/')) {
         await interaction.editReply('❌ O link não parece ser um link válido da wishlist da Steam.');
         return;
