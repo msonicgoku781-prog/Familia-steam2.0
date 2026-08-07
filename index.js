@@ -89,6 +89,18 @@ const ACHIEVEMENT_EMOJI = '<:Trofeu:1525724119142891571>';
 console.log('🚀 [5] Constantes definidas.');
 
 // ============================================================
+// 3.1 WISHLIST LINKS (FALLBACK PARA TESTE)
+// ============================================================
+const WISHLIST_LINKS_FALLBACK = {
+  '76561198127320557': 'https://store.steampowered.com/wishlist/id/gardemi14/?st=9781845176545064172', // Gardemi
+  '76561198110004039': 'https://store.steampowered.com/wishlist/id/venum781/?sort=discount&st=15535079369621866391', // Venum
+  '76561198446717315': 'https://store.steampowered.com/wishlist/id/WoollySkills/?st=13976153632286308648', // WoollySkills
+  '76561198848231901': 'https://store.steampowered.com/wishlist/profiles/76561198848231901/?sort=dateadded&st=12664633540339000937' // Mosk
+};
+
+console.log('🚀 [5.1] Wishlist links fallback carregados.');
+
+// ============================================================
 // 4. BANCO DE DADOS (ANEXO NO CANAL PRIVADO)
 // ============================================================
 let db = null;
@@ -420,7 +432,43 @@ async function listarQuero(discordId) {
   return await loadQueroList(discordId);
 }
 
-console.log('🚀 [7] Funções /quero carregadas.');
+// ============================================================
+// 5.1 FUNÇÕES DE WISHLIST LINK (SALVO NO CANAL)
+// ============================================================
+async function getWishlistLinkMessage(discordId) {
+  const channel = client.channels.cache.get(QUERO_CHANNEL);
+  if (!channel) return null;
+  try {
+    const messages = await channel.messages.fetch({ limit: 100 });
+    return messages.find(m => m.content.startsWith(`WISHLIST_LINK_${discordId}:`)) || null;
+  } catch (_) { return null; }
+}
+
+async function loadWishlistLink(discordId) {
+  const msg = await getWishlistLinkMessage(discordId);
+  if (!msg) return null;
+  try {
+    const link = msg.content.substring(msg.content.indexOf(':') + 1).trim();
+    return link || null;
+  } catch (_) { return null; }
+}
+
+async function saveWishlistLink(discordId, link) {
+  const channel = client.channels.cache.get(QUERO_CHANNEL);
+  if (!channel) return false;
+  const content = `WISHLIST_LINK_${discordId}: ${link}`;
+  try {
+    const msg = await getWishlistLinkMessage(discordId);
+    if (msg) {
+      await msg.edit(content);
+    } else {
+      await channel.send(content);
+    }
+    return true;
+  } catch (_) { return false; }
+}
+
+console.log('🚀 [7] Funções /quero e wishlist carregadas.');
 
 // ============================================================
 // 6. FUNÇÕES DA STEAM API
@@ -568,6 +616,118 @@ async function getCurrentGame(steamId) {
   return null;
 }
 
+// ============================================================
+// 6.1 FUNÇÃO PARA BUSCAR WISHLIST DA STEAM
+// ============================================================
+async function getSteamWishlist(steamId) {
+  try {
+    const url = `https://store.steampowered.com/wishlist/profiles/${steamId}/wishlistdata/`;
+    console.log(`🔍 Buscando wishlist: ${url}`);
+    
+    const response = await axios.get(url, {
+      params: {
+        l: 'portuguese',
+        v: '1'
+      },
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+    
+    if (!response.data || typeof response.data !== 'object' || Object.keys(response.data).length === 0) {
+      console.log(`📋 Wishlist vazia ou privada para ${steamId}`);
+      return [];
+    }
+    
+    const wishlist = [];
+    for (const [appid, data] of Object.entries(response.data)) {
+      if (data && data.name) {
+        wishlist.push({
+          appid: parseInt(appid),
+          nome: data.name,
+          link: `https://store.steampowered.com/app/${appid}`
+        });
+      }
+    }
+    console.log(`📋 Wishlist encontrada: ${wishlist.length} jogos`);
+    return wishlist;
+  } catch (error) {
+    if (error.response && error.response.status === 404) {
+      console.log(`❌ Wishlist não encontrada (404) para ${steamId}`);
+    } else if (error.response && error.response.status === 403) {
+      console.log(`🔒 Wishlist privada (403) para ${steamId}`);
+    } else {
+      console.log(`⚠️ Erro ao acessar wishlist: ${error.message}`);
+    }
+    return [];
+  }
+}
+
+// ============================================================
+// 6.2 FUNÇÃO PARA RESOLVER VANITY URL PARA STEAM ID
+// ============================================================
+async function resolveVanityUrl(vanityName) {
+  try {
+    const url = `https://api.steampowered.com/ISteamUser/ResolveVanityURL/v1/`;
+    const params = {
+      key: STEAM_KEY,
+      vanityurl: vanityName
+    };
+    const response = await axios.get(url, { params, timeout: 10000 });
+    
+    if (response.data?.response?.success === 1) {
+      const steamId = response.data.response.steamid;
+      console.log(`✅ Vanity "${vanityName}" resolvido para SteamID: ${steamId}`);
+      return steamId;
+    } else {
+      console.log(`❌ Vanity "${vanityName}" não encontrado`);
+      return null;
+    }
+  } catch (error) {
+    console.error(`❌ Erro ao resolver vanity URL: ${error.message}`);
+    return null;
+  }
+}
+
+// ============================================================
+// 6.3 FUNÇÃO PARA BUSCAR WISHLIST A PARTIR DO LINK
+// ============================================================
+async function getSteamWishlistFromLink(wishlistLink) {
+  try {
+    console.log(`🔍 Processando link: ${wishlistLink}`);
+    
+    // Tenta extrair SteamID do formato /profiles/STEAMID/
+    const profileMatch = wishlistLink.match(/wishlist\/profiles\/(\d+)/);
+    if (profileMatch) {
+      const steamId = profileMatch[1];
+      console.log(`🆔 SteamID extraído: ${steamId}`);
+      return await getSteamWishlist(steamId);
+    }
+    
+    // Tenta extrair nome de usuário do formato /id/USERNAME/
+    const idMatch = wishlistLink.match(/wishlist\/id\/([^\/\?]+)/);
+    if (idMatch) {
+      const vanityName = idMatch[1];
+      console.log(`🔍 Nome de usuário extraído: ${vanityName}`);
+      
+      const steamId = await resolveVanityUrl(vanityName);
+      if (!steamId) {
+        console.log(`❌ Não foi possível resolver o nome "${vanityName}" para um SteamID`);
+        return [];
+      }
+      
+      return await getSteamWishlist(steamId);
+    }
+    
+    console.log(`❌ Não foi possível extrair informações do link: ${wishlistLink}`);
+    return [];
+  } catch (error) {
+    console.error(`❌ Erro ao buscar wishlist a partir do link: ${error.message}`);
+    return [];
+  }
+}
+
 const achievementNameCache = {};
 
 async function getAchievementDisplayName(appId, apiname) {
@@ -644,7 +804,7 @@ async function traduzirTexto(texto, targetLang = 'pt') {
 console.log('🚀 [8] Funções da Steam API carregadas.');
 
 // ============================================================
-// 6.1 FUNÇÃO PARA BUSCAR CONQUISTAS COM PORCENTAGEM
+// 6.4 FUNÇÃO PARA BUSCAR CONQUISTAS COM PORCENTAGEM
 // ============================================================
 async function getPlayerAchievementsWithPercent(steamId, appId) {
   try {
@@ -839,6 +999,7 @@ async function enviarRegras() {
       '`/quero [jogo]` – Adiciona um jogo à sua lista de desejos.\n' +
       '`/quero-listar` – Lista os jogos da sua lista /quero.\n' +
       '`/quero-remover [jogo]` – Remove um jogo da sua lista /quero.\n' +
+      '`/wishlist-link` – Registra o link da sua wishlist para receber notificações.\n' +
       '`/dbstatus` – Status do banco de dados (apenas dono).\n' +
       '`/regras` – Exibe esta mensagem novamente.\n' +
       '`/conquista jogo:"nome"` – Mostra todas as conquistas de um jogo com vídeos guia.\n\n' +
@@ -846,7 +1007,7 @@ async function enviarRegras() {
       '• 🆕 Novos jogos compatíveis são anunciados com `@everyone`.\n' +
       '• 🏆 Conquistas são monitoradas e notificadas no canal de conquistas.\n' +
       '• 📢 Lançamentos e promoções de jogos da sua lista `/quero` são enviados por DM.\n' +
-      '• 🎯 Quando alguém comprar um jogo da sua **lista /quero**, você recebe uma DM!\n\n' +
+      '• 🎯 Quando alguém comprar um jogo da sua **wishlist da Steam**, você recebe uma DM!\n\n' +
       '**📌 CANAIS IMPORTANTES**\n' +
       `• 📢 **Notificações:** <#${CHANNEL_ID}>\n` +
       `• 🏆 **Conquistas:** <#${ACHIEVEMENT_CHANNEL_ID}>\n` +
@@ -1076,7 +1237,6 @@ async function verificarJogosQueroComprados(steamId, newGames, comprador) {
       
       const discordId = member.discordId;
       
-      // 🔥 CARREGA A LISTA /quero DO MEMBRO
       const listaQuero = await loadQueroList(discordId);
       if (!listaQuero || listaQuero.length === 0) {
         console.log(`ℹ️ ${member.nome} não tem lista /quero`);
@@ -1144,7 +1304,105 @@ async function verificarJogosQueroComprados(steamId, newGames, comprador) {
 }
 
 // ============================================================
-// 12. checkAchievements - COM REVERIFICAÇÃO A CADA 5 MINUTOS
+// 12. VERIFICAÇÃO DE JOGOS DA WISHLIST COMPRADOS (COM FALLBACK)
+// ============================================================
+async function verificarJogosWishlistComprados(steamId, newGames, comprador) {
+  try {
+    if (!newGames || newGames.length === 0) return;
+    
+    console.log(`🔍 Verificando se ${comprador} comprou jogos da wishlist de alguém...`);
+    
+    for (const [sid, member] of Object.entries(MEMBROS)) {
+      if (sid === steamId) continue; // Ignora o próprio comprador
+      
+      const discordId = member.discordId;
+      
+      // 🔥 TENTA CARREGAR DO CANAL
+      let wishlistLink = await loadWishlistLink(discordId);
+      
+      // 🔥 SE NÃO TIVER NO CANAL, USA O FALLBACK
+      if (!wishlistLink && WISHLIST_LINKS_FALLBACK[sid]) {
+        wishlistLink = WISHLIST_LINKS_FALLBACK[sid];
+        console.log(`ℹ️ Usando link fallback para ${member.nome}`);
+      }
+      
+      if (!wishlistLink) {
+        console.log(`ℹ️ ${member.nome} não tem link de wishlist registrado (use /wishlist-link)`);
+        continue;
+      }
+      
+      console.log(`🔗 Link de wishlist de ${member.nome}: ${wishlistLink}`);
+      
+      // Busca a wishlist a partir do link
+      const wishlist = await getSteamWishlistFromLink(wishlistLink);
+      if (!wishlist || wishlist.length === 0) {
+        console.log(`ℹ️ ${member.nome} não tem wishlist pública ou está vazia`);
+        continue;
+      }
+      
+      console.log(`📋 ${member.nome} tem ${wishlist.length} jogos na wishlist`);
+      
+      for (const game of newGames) {
+        const appid = game.appid;
+        const nome = game.name || `App ${appid}`;
+        
+        const jogoNaWishlist = wishlist.find(j => j.appid === appid);
+        if (jogoNaWishlist) {
+          console.log(`🎯 ${comprador} comprou "${nome}" que está na wishlist de ${member.nome}`);
+          
+          // Busca detalhes do jogo
+          let precoInfo = null;
+          let gameDetails = null;
+          try {
+            precoInfo = await getPriceOverview(appid);
+            gameDetails = await getGameDetails(appid);
+          } catch (_) {}
+          
+          const embed = new EmbedBuilder()
+            .setColor(0x00FF00)
+            .setTitle(`🎮 ${comprador} comprou um jogo da sua wishlist!`)
+            .setDescription(`**${nome}** foi adicionado à biblioteca da família!`)
+            .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
+            .addFields(
+              { name: '🛒 Comprado por', value: comprador, inline: true },
+              { name: '📌 Na sua wishlist', value: '✅ Sim', inline: true }
+            );
+          
+          if (precoInfo) {
+            embed.addFields(
+              { name: '💰 Preço', value: precoInfo.precoAtual || 'N/A', inline: true }
+            );
+          }
+          
+          if (gameDetails?.release_date?.date) {
+            embed.addFields(
+              { name: '📅 Lançamento', value: gameDetails.release_date.date, inline: true }
+            );
+          }
+          
+          embed.addFields(
+            { name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: false }
+          )
+          .setFooter({ text: 'Steam Família - Alerta de Wishlist' })
+          .setTimestamp();
+          
+          try {
+            const usuario = await client.users.fetch(discordId);
+            await usuario.send({ embeds: [embed] });
+            console.log(`📨 DM enviada para ${member.nome} sobre "${nome}" comprado por ${comprador}`);
+          } catch (err) {
+            console.error(`❌ Erro ao enviar DM para ${member.nome}:`, err.message);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('❌ Erro em verificarJogosWishlistComprados:', err);
+  }
+}
+
+// ============================================================
+// 13. checkAchievements - COM REVERIFICAÇÃO A CADA 5 MINUTOS
 // ============================================================
 async function checkAchievements() {
   console.log(`🔍 [checkAchievements] Verificando conquistas da família...`);
@@ -1274,7 +1532,7 @@ async function checkAchievements() {
 }
 
 // ============================================================
-// 13. VERIFICAÇÃO DE NOVOS JOGOS (MODIFICADA)
+// 14. VERIFICAÇÃO DE NOVOS JOGOS (MODIFICADA)
 // ============================================================
 async function checkNewGames() {
   try {
@@ -1301,6 +1559,9 @@ async function checkNewGames() {
 
         // 🔥 VERIFICA SE ALGUÉM TEM ESSES JOGOS NA LISTA /quero
         await verificarJogosQueroComprados(steamId, newGames, userName);
+
+        // 🔥 VERIFICA SE ALGUÉM TEM ESSES JOGOS NA WISHLIST
+        await verificarJogosWishlistComprados(steamId, newGames, userName);
 
         for (const game of newGames) {
           const appid = game.appid;
@@ -1337,7 +1598,7 @@ async function checkNewGames() {
 }
 
 // ============================================================
-// 14. VERIFICAÇÃO DE LANÇAMENTOS E PROMOÇÕES
+// 15. VERIFICAÇÃO DE LANÇAMENTOS E PROMOÇÕES
 // ============================================================
 async function verificarLancamentosQuero() {
   try {
@@ -1441,10 +1702,10 @@ async function verificarPromocoesQuero() {
   }
 }
 
-console.log('🚀 [14] Tarefas periódicas carregadas.');
+console.log('🚀 [15] Tarefas periódicas carregadas.');
 
 // ============================================================
-// 15. FUNÇÃO DE BUSCA DE VÍDEOS
+// 16. FUNÇÃO DE BUSCA DE VÍDEOS
 // ============================================================
 async function buscarVideoYouTube(nomeJogo, nomeConquista) {
   const cachedVideo = await getVideoFromCache(nomeJogo, nomeConquista);
@@ -1525,10 +1786,10 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
   }
 }
 
-console.log('🚀 [15] Função de busca de vídeos carregada.');
+console.log('🚀 [16] Função de busca de vídeos carregada.');
 
 // ============================================================
-// 16. CLIENT DISCORD
+// 17. CLIENT DISCORD
 // ============================================================
 const client = new Client({
   intents: [
@@ -1538,7 +1799,7 @@ const client = new Client({
   ]
 });
 
-console.log('🚀 [16] Cliente Discord criado.');
+console.log('🚀 [17] Cliente Discord criado.');
 
 client.on('disconnect', (event) => {
   console.log(`🔌 Desconectado: ${event.reason || 'Motivo desconhecido'}`);
@@ -1553,7 +1814,7 @@ client.on('error', (error) => {
 });
 
 // ============================================================
-// 17. CARREGAR MAPEAMENTO DE CONQUISTAS (MEGA MAN X)
+// 18. CARREGAR MAPEAMENTO DE CONQUISTAS (MEGA MAN X)
 // ============================================================
 let conquestMappings = null;
 let conquestMappingsLoaded = false;
@@ -1606,7 +1867,7 @@ async function carregarMapeamentoDoCanal(channel) {
 }
 
 // ============================================================
-// 18. EVENTO clientReady
+// 19. EVENTO clientReady
 // ============================================================
 let botIniciado = false;
 const flagFile = path.join(__dirname, 'bot_started.flag');
@@ -1650,6 +1911,7 @@ client.once('clientReady', async () => {
         { name: 'quero', description: 'Adiciona um jogo à sua lista de desejos', options: [{ name: 'jogo', description: 'Nome do jogo ou link da Steam', type: 3, required: true }] },
         { name: 'quero-listar', description: 'Lista os jogos da sua lista /quero' },
         { name: 'quero-remover', description: 'Remove um jogo da sua lista /quero', options: [{ name: 'jogo', description: 'Nome do jogo para remover', type: 3, required: true }] },
+        { name: 'wishlist-link', description: 'Registra o link da sua wishlist para receber notificações', options: [{ name: 'link', description: 'Link da sua wishlist (ex: https://store.steampowered.com/wishlist/id/seu_nome/)', type: 3, required: true }] },
         { name: 'dbstatus', description: '[DONO] Status do banco de dados' },
         { name: 'regras', description: 'Mostra as regras e comandos do servidor' },
         {
@@ -1719,7 +1981,7 @@ client.once('clientReady', async () => {
 });
 
 // ============================================================
-// 19. COMANDO /dbstatus
+// 20. COMANDO /dbstatus
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -1774,7 +2036,40 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 20. COMANDO /quero
+// 21. COMANDO /wishlist-link
+// ============================================================
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'wishlist-link') {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    
+    try {
+      const link = interaction.options.getString('link').trim();
+      const discordId = interaction.user.id;
+      
+      // Validação básica do link
+      if (!link.includes('steampowered.com/wishlist/')) {
+        await interaction.editReply('❌ O link não parece ser um link válido da wishlist da Steam.');
+        return;
+      }
+      
+      const saved = await saveWishlistLink(discordId, link);
+      if (saved) {
+        await interaction.editReply('✅ Link da wishlist salvo com sucesso! Você receberá notificações quando alguém comprar um jogo da sua wishlist.');
+        console.log(`📌 ${interaction.user.tag} registrou wishlist: ${link}`);
+      } else {
+        await interaction.editReply('❌ Erro ao salvar o link. Tente novamente.');
+      }
+    } catch (error) {
+      console.error('❌ Erro no /wishlist-link:', error);
+      await interaction.editReply('❌ Ocorreu um erro ao salvar o link.');
+    }
+  }
+});
+
+// ============================================================
+// 22. COMANDO /quero
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -1936,7 +2231,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 21. COMANDO /quero-listar
+// 23. COMANDO /quero-listar
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2005,7 +2300,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 22. COMANDO /quero-remover
+// 24. COMANDO /quero-remover
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2070,7 +2365,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 23. COMANDO /tem
+// 25. COMANDO /tem
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2146,7 +2441,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 24. COMANDO /conquista (COMPLETO E OTIMIZADO)
+// 26. COMANDO /conquista (COMPLETO E OTIMIZADO)
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2634,7 +2929,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 25. FALLBACK PARA BOTÕES
+// 27. FALLBACK PARA BOTÕES
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
@@ -2676,7 +2971,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 26. OUTROS COMANDOS
+// 28. OUTROS COMANDOS
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
@@ -2730,7 +3025,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 27. HEALTH CHECK PARA RAILWAY
+// 29. HEALTH CHECK PARA RAILWAY
 // ============================================================
 if (process.env.PORT) {
   try {
@@ -2752,7 +3047,7 @@ if (process.env.PORT) {
 }
 
 // ============================================================
-// 28. LOGIN
+// 30. LOGIN
 // ============================================================
 console.log('🔑 Tentando login...');
 client.login(DISCORD_TOKEN)
