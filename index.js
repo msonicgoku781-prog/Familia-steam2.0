@@ -93,8 +93,9 @@ console.log('🚀 [5] Constantes definidas.');
 // ============================================================
 const WISHLIST_LINKS_FALLBACK = {
   '76561198127320557': 'https://store.steampowered.com/wishlist/id/gardemi14/?st=9781845176545064172', // Gardemi
-  '76561198110004039': 'https://store.steampowered.com/wishlist/id/venum781/?sort=discount&st=15535079369621866391', // Venum
+  '76561197967265286': 'https://store.steampowered.com/wishlist/id/marlon5/?st=12031400973950461745', // Marlon
   '76561198446717315': 'https://store.steampowered.com/wishlist/id/WoollySkills/?st=13976153632286308648', // WoollySkills
+  '76561198110004039': 'https://store.steampowered.com/wishlist/id/venum781/?sort=discount&st=15535079369621866391', // Venum
   '76561198848231901': 'https://store.steampowered.com/wishlist/profiles/76561198848231901/?sort=dateadded&st=12664633540339000937', // Mosk
   '76561198406551864': 'https://store.steampowered.com/wishlist/profiles/76561198406551864/?st=9055044468942286935' // DollynhoMococa
 };
