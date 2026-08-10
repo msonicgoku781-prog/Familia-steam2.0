@@ -24,6 +24,18 @@ function isoDurationToSeconds(iso) {
 }
 
 /**
+ * Remove duplicados por id mantendo a primeira ocorrência
+ */
+function uniqueById(items) {
+  const map = new Map();
+  for (const it of items) {
+    if (!it || !it.id) continue;
+    if (!map.has(it.id)) map.set(it.id, it);
+  }
+  return Array.from(map.values());
+}
+
+/**
  * Faz busca no YouTube: prioriza vídeos curtos (videoDuration=short).
  * Retorna array com { id, title, channelTitle, durationSec, url, isShort }
  */
@@ -42,12 +54,14 @@ async function searchTrophyVideos(game, trophyName, maxResults = 5) {
   // 1) Busca priorizando vídeos curtos (< 4min)
   const shortUrl = `${base}?key=${apiKey}&part=snippet&type=video&videoDuration=short&order=relevance&maxResults=${maxResults}&q=${encodeURIComponent(q)}`;
   const shortResp = await fetch(shortUrl).then(r => r.json());
-  const shortItems = (shortResp.items || []).map(it => ({
+  const shortItemsRaw = (shortResp.items || []).map(it => ({
     id: it.id.videoId,
     title: it.snippet.title,
     channelTitle: it.snippet.channelTitle,
     url: `https://youtu.be/${it.id.videoId}`
   }));
+
+  const shortItems = uniqueById(shortItemsRaw);
 
   if (shortItems.length >= Math.min(maxResults, 3)) {
     // Se já temos resultados curtos suficientes, enriquecemos com durações e retornamos
@@ -66,22 +80,24 @@ async function searchTrophyVideos(game, trophyName, maxResults = 5) {
   const allMax = Math.max(10, maxResults * 3);
   const allUrl = `${base}?key=${apiKey}&part=snippet&type=video&order=relevance&maxResults=${allMax}&q=${encodeURIComponent(q)}`;
   const allResp = await fetch(allUrl).then(r => r.json());
-  const allItems = (allResp.items || []).map(it => ({
+  const allItemsRaw = (allResp.items || []).map(it => ({
     id: it.id.videoId,
     title: it.snippet.title,
     channelTitle: it.snippet.channelTitle,
     url: `https://youtu.be/${it.id.videoId}`
   }));
 
-  if (allItems.length === 0) return [];
+  // Combine shortItems (if any) with allItems to keep preference for shorts but avoid duplicates
+  const combined = uniqueById([...shortItems, ...allItemsRaw]);
+  if (combined.length === 0) return [];
 
   // Obter durations dos vídeos retornados e ordenar: curtos primeiro (menor duration)
-  const ids = allItems.map(i => i.id).join(',');
+  const ids = combined.map(i => i.id).join(',');
   const vidsDet = await fetch(`${videosEndpoint}?key=${apiKey}&part=contentDetails&id=${ids}`).then(r => r.json());
   const durMap = {};
   (vidsDet.items || []).forEach(d => { durMap[d.id] = isoDurationToSeconds(d.contentDetails.duration); });
 
-  const enriched = allItems.map(i => ({
+  const enriched = combined.map(i => ({
     ...i,
     durationSec: durMap[i.id] ?? 0,
     isShort: (durMap[i.id] ?? 0) < 240 // considerar 'short' < 4min
