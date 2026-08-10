@@ -9,7 +9,7 @@ console.log(`🆔 Node.js: ${process.version}`);
 console.log(`📁 Diretório: ${__dirname}`);
 console.log('========================================');
 
-const DEBUG = false; // Desativa logs extras
+const DEBUG = false;
 
 console.log('🚀 [1] Iniciando o script...');
 
@@ -87,7 +87,7 @@ const RANKING_VALUES = {
   '76561198406551864': 0
 };
 const ACHIEVEMENT_EMOJI = '<:Trofeu:1525724119142891571>';
-const MIN_INTERVALO = 3000; // 3 segundos entre requisições Steam
+const MIN_INTERVALO = 3000;
 const MAX_VIDEO_CACHE = 20;
 
 console.log('🚀 [5] Constantes definidas.');
@@ -164,7 +164,7 @@ async function carregarDBDoCanal() {
         return response.data;
       }
     }
-  } catch (e) { console.error('❌ Erro ao carregar DB:', e); }
+  } catch (e) { /* Silencia */ }
   return null;
 }
 
@@ -735,7 +735,7 @@ async function traduzirTexto(texto, targetLang = 'pt') {
 console.log('🚀 [8] Funções da Steam API carregadas.');
 
 // ============================================================
-// 6.4 CONQUISTAS COM PORCENTAGEM
+// 6.4 CONQUISTAS COM PORCENTAGEM (SILENCIA 400/403)
 // ============================================================
 async function getPlayerAchievementsWithPercent(steamId, appId) {
   try {
@@ -744,6 +744,7 @@ async function getPlayerAchievementsWithPercent(steamId, appId) {
       { steamid: steamId, appid: appId, format: 'json' }
     );
     if (!playerData?.playerstats?.achievements) return null;
+    
     let globalPercentMap = {};
     try {
       const globalData = await fetchSteam(
@@ -756,6 +757,7 @@ async function getPlayerAchievementsWithPercent(steamId, appId) {
         }
       }
     } catch (e) {}
+    
     const achievements = playerData.playerstats.achievements.map(ach => ({
       ...ach,
       percent: globalPercentMap[ach.apiname] || 0,
@@ -763,6 +765,10 @@ async function getPlayerAchievementsWithPercent(steamId, appId) {
     }));
     return { achievements, gameName: playerData.playerstats.gameName || `Jogo ${appId}` };
   } catch (error) {
+    // Suprime erros 400 e 403 silenciosamente
+    if (error.response && (error.response.status === 400 || error.response.status === 403)) {
+      return null;
+    }
     console.error(`❌ Erro ao buscar conquistas com porcentagem:`, error.message);
     return null;
   }
@@ -939,7 +945,7 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 10. VERIFICAÇÃO DE CONQUISTAS
+// 10. VERIFICAÇÃO DE CONQUISTAS (SILENCIA 400/403)
 // ============================================================
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length) return;
@@ -987,19 +993,18 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
     try {
       conquistasData = await getPlayerAchievementsWithPercent(steamId, appid);
     } catch (e) {
-      if (e.response && e.response.status === 400) {
-        console.log(`   ℹ️ ${gameName} não possui conquistas.`);
-        if (!db.jogosSemConquistas) db.jogosSemConquistas = {};
-        db.jogosSemConquistas[appid] = { nome: gameName, data: new Date().toISOString(), motivo: 'sem_conquistas' };
-        await salvarDBNoCanal();
-        continue;
+      // Já tratado silenciosamente na função, mas por segurança:
+      if (e.response && (e.response.status === 400 || e.response.status === 403)) {
+        // Silencia
+      } else {
+        console.log(`   ⚠️ Erro ao buscar conquistas: ${e.message}`);
       }
-      console.log(`   ⚠️ Erro ao buscar conquistas: ${e.message}`);
       continue;
     }
 
     if (!conquistasData?.achievements || conquistasData.achievements.length === 0) {
-      console.log(`   ℹ️ ${gameName} não possui conquistas.`);
+      // Não loga mais "não possui conquistas" para esses jogos
+      // console.log(`   ℹ️ ${gameName} não possui conquistas.`);
       if (!db.jogosSemConquistas) db.jogosSemConquistas = {};
       db.jogosSemConquistas[appid] = { nome: gameName, data: new Date().toISOString(), motivo: 'sem_conquistas' };
       await salvarDBNoCanal();
@@ -1217,7 +1222,7 @@ async function verificarJogosWishlistComprados(steamId, newGames, comprador) {
 }
 
 // ============================================================
-// 13. checkAchievements (10 minutos, limites)
+// 13. checkAchievements
 // ============================================================
 async function checkAchievements() {
   console.log(`🔍 [checkAchievements] Verificando conquistas da família...`);
@@ -1282,7 +1287,7 @@ async function checkAchievements() {
 }
 
 // ============================================================
-// 14. checkNewGames (10 minutos)
+// 14. checkNewGames
 // ============================================================
 async function checkNewGames() {
   try {
@@ -1336,7 +1341,7 @@ async function checkNewGames() {
 }
 
 // ============================================================
-// 15. LANÇAMENTOS E PROMOÇÕES (10 minutos)
+// 15. LANÇAMENTOS E PROMOÇÕES
 // ============================================================
 async function verificarLancamentosQuero() {
   try {
@@ -2093,7 +2098,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 28. COMANDO /conquista (COMPLETO)
+// 28. COMANDO /conquista
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
