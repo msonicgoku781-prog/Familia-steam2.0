@@ -1999,7 +1999,6 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'wishlist-link') {
-    // DEFER IMEDIATAMENTE - sem nenhuma operação antes
     try {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     } catch (e) {
@@ -2037,7 +2036,6 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'quero') {
-    // DEFER IMEDIATAMENTE
     try {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     } catch (e) {
@@ -2430,7 +2428,6 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'conquista') {
-    // DEFER IMEDIATAMENTE
     try {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     } catch (e) {
@@ -2565,6 +2562,8 @@ client.on('interactionCreate', async (interaction) => {
 
       const usuarioTemJogo = donosDoJogo.some(d => d.steamId === userSteamId);
       const nomesDonos = donosDoJogo.map(d => d.nome).join(', ');
+
+      const videoLinksMap = new Map();
 
       async function generateAchievementEmbed(ach, index) {
         let imageUrl = ach.icon;
@@ -2725,13 +2724,15 @@ client.on('interactionCreate', async (interaction) => {
       const collector = reply.createMessageComponentCollector({ filter, time: 180000 });
 
       collector.on('collect', async (i) => {
+        console.log(`🔄 [COLLECTOR] Interação recebida: ${i.customId} de ${i.user.tag}`);
+
         if (!i.isRepliable()) {
           console.log(`⚠️ [BOTÃO] Interação não pode ser respondida (já expirou)`);
           return;
         }
 
+        // --- BOTÃO DE VÍDEO ---
         if (i.customId.startsWith('video_')) {
-          // DEFER UPDATE IMEDIATAMENTE
           try {
             await i.deferUpdate();
           } catch (e) {
@@ -2741,22 +2742,13 @@ client.on('interactionCreate', async (interaction) => {
 
           const videoData = videoLinksMap.get(i.customId);
           if (!videoData) {
+            console.log(`⚠️ [VIDEO] Dados não encontrados para ${i.customId}`);
             return;
           }
 
           try {
             console.log(`✅ [BOTÃO] DeferUpdate executado para "${videoData.conquista}"`);
-            
-            const videoPromise = buscarVideoYouTube(videoData.jogo, videoData.conquista);
-            const timeoutPromise = new Promise((resolve) => {
-              setTimeout(() => {
-                console.log(`⏰ TIMEOUT: 5 segundos para "${videoData.conquista}"`);
-                resolve(null);
-              }, 5000);
-            });
-            
-            const videoInfo = await Promise.race([videoPromise, timeoutPromise]);
-            
+            const videoInfo = await buscarVideoYouTube(videoData.jogo, videoData.conquista);
             if (videoInfo) {
               await i.followUp({
                 content: `🎬 **Vídeo guia para "${videoData.conquista}":**\n${videoInfo.link}`,
@@ -2764,7 +2756,7 @@ client.on('interactionCreate', async (interaction) => {
               });
               console.log(`✅ [BOTÃO] Vídeo enviado para "${videoData.conquista}"`);
             } else {
-              console.log(`ℹ️ [BOTÃO] Nenhum vídeo encontrado para "${videoData.conquista}" - sem mensagem`);
+              console.log(`ℹ️ [BOTÃO] Nenhum vídeo encontrado para "${videoData.conquista}"`);
             }
           } catch (error) {
             console.error(`❌ Erro no botão de vídeo:`, error);
@@ -2772,29 +2764,40 @@ client.on('interactionCreate', async (interaction) => {
           return;
         }
 
+        // --- SELECT DE CONQUISTA ---
         if (i.customId === 'conquista_select') {
           try {
-            // DEFER UPDATE
             await i.deferUpdate();
+            console.log(`✅ [SELECT] deferUpdate OK para ${i.user.tag}`);
+
             const selectedIndex = parseInt(i.values[0]);
             const ach = conquistasList[selectedIndex];
+            if (!ach) {
+              console.log(`⚠️ [SELECT] Índice inválido: ${selectedIndex}`);
+              return;
+            }
+
             const { embed, buttons } = await generateAchievementEmbed(ach, selectedIndex);
 
-            await i.editReply({
+            // 🔥 CORREÇÃO: usar i.update() em vez de i.editReply()
+            await i.update({
               embeds: [embed],
               components: [buttons]
             });
+            console.log(`✅ [SELECT] Mensagem atualizada com embed para: ${ach.displayName}`);
           } catch (e) {
             console.error(`❌ Erro na seleção:`, e.message);
           }
           return;
         }
 
+        // --- BOTÃO VOLTAR ---
         if (i.customId === 'back_to_list_conq') {
           try {
             await i.deferUpdate();
+            console.log(`✅ [BACK] deferUpdate OK`);
+
             let descricaoAtualizada = `${mensagemAcesso}\n\n`;
-            
             if (conquistasDesbloqueadas === 0 && conquistasUsuario.length === 0) {
               descricaoAtualizada += `**📊 Todas as Conquistas do Jogo**\n\n`;
               descricaoAtualizada += `🔒 **Não desbloqueadas:** ${totalConquistas}/${totalConquistas}\n`;
@@ -2823,25 +2826,28 @@ client.on('interactionCreate', async (interaction) => {
             const selectRow = generateSelectMenu(currentPage);
             const buttonRow = generatePaginationButtons(currentPage);
 
-            await i.editReply({
+            await i.update({
               embeds: [embed],
               components: [selectRow, buttonRow]
             });
+            console.log(`✅ [BACK] Mensagem atualizada para lista`);
           } catch (e) {
             console.error(`❌ Erro ao voltar:`, e.message);
           }
           return;
         }
 
+        // --- BOTÕES DE PÁGINA ---
         if (i.customId === 'prev_page_conq' || i.customId === 'next_page_conq') {
           try {
             await i.deferUpdate();
+            console.log(`✅ [PAGE] deferUpdate OK`);
+
             const totalPages = Math.ceil(totalConquistas / ITEMS_PER_PAGE);
             if (i.customId === 'prev_page_conq' && currentPage > 0) currentPage--;
             if (i.customId === 'next_page_conq' && currentPage < totalPages - 1) currentPage++;
 
             let descricaoAtualizada = `${mensagemAcesso}\n\n`;
-            
             if (conquistasDesbloqueadas === 0 && conquistasUsuario.length === 0) {
               descricaoAtualizada += `**📊 Todas as Conquistas do Jogo**\n\n`;
               descricaoAtualizada += `🔒 **Não desbloqueadas:** ${totalConquistas}/${totalConquistas}\n`;
@@ -2870,15 +2876,18 @@ client.on('interactionCreate', async (interaction) => {
             const selectRow = generateSelectMenu(currentPage);
             const buttonRow = generatePaginationButtons(currentPage);
 
-            await i.editReply({
+            await i.update({
               embeds: [embed],
               components: [selectRow, buttonRow]
             });
+            console.log(`✅ [PAGE] Mensagem atualizada para página ${currentPage+1}`);
           } catch (e) {
             console.error(`❌ Erro na navegação:`, e.message);
           }
           return;
         }
+
+        console.log(`⚠️ [COLLECTOR] CustomId não tratado: ${i.customId}`);
       });
 
       collector.on('end', async () => {
