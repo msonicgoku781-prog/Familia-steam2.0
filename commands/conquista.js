@@ -35,10 +35,9 @@ function extractYouTubeId(text) {
     /(?:https?:\/\/)?(?:www\.)?youtube\.com\/shorts\/([A-Za-z0-9_-]{11})/i,
     /(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([A-Za-z0-9_-]{11})/i,
     /(?:https?:\/\/)?i\.ytimg\.com\/vi\/([A-Za-z0-9_-]{11})/i,
-    /([A-Za-z0-9_-]{11})/i // fallback (will be last resort)
   ];
 
-  for (const re of patterns.slice(0, patterns.length - 1)) {
+  for (const re of patterns) {
     const m = text.match(re);
     if (m && m[1]) return m[1];
   }
@@ -201,6 +200,7 @@ async function fetchSavedVideoIds(client, maxMessages = 1000) {
 /**
  * Salva (envia) no canal DB_CHANNEL_ID apenas os vídeos que ainda não constam lá.
  * Retorna quantidade de novos salvos. Atualiza existingSet conforme salva para evitar condições de corrida.
+ * Agora faz um re-check de mensagens recentes antes de enviar cada chunk para evitar duplicatas por race.
  */
 async function saveNewVideosToChannel(client, videos, existingSet) {
   if (!client) return 0;
@@ -215,7 +215,40 @@ async function saveNewVideosToChannel(client, videos, existingSet) {
     const chunkSize = 10;
     let savedCount = 0;
     for (let i = 0; i < toSave.length; i += chunkSize) {
-      const chunk = toSave.slice(i, i + chunkSize);
+      // Antes de enviar, re-check nas mensagens mais recentes para detectar se outro processo já salvou algum vídeo
+      try {
+        const recent = await channel.messages.fetch({ limit: 200 });
+        for (const msg of recent.values()) {
+          if (msg.content) {
+            const id = extractYouTubeId(msg.content);
+            if (id) existingSet.add(id);
+          }
+          if (msg.embeds && msg.embeds.length) {
+            for (const e of msg.embeds) {
+              if (e.url) {
+                const id = extractYouTubeId(e.url);
+                if (id) existingSet.add(id);
+              }
+              if (e.thumbnail && e.thumbnail.url) {
+                const id2 = extractYouTubeId(e.thumbnail.url);
+                if (id2) existingSet.add(id2);
+              }
+              if (e.description) {
+                const id3 = extractYouTubeId(e.description);
+                if (id3) existingSet.add(id3);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        // se falhar, continuamos com o envio baseado no existingSet que temos
+        console.error('Re-check failed before sending chunk:', err);
+      }
+
+      // recompute chunk after re-check to remove already-saved videos
+      const chunk = toSave.slice(i, i + chunkSize).filter(v => !existingSet.has(v.id));
+      if (chunk.length === 0) continue; // nada novo para enviar neste bloco
+
       const lines = chunk.map(v => `🔖 ${v.title} — ${v.channelTitle}\n${v.url}\nID: ${v.id}`);
       await channel.send({ content: `Novos vídeos salvos:\n\n${lines.join('\n\n')}` });
       // Atualizar existingSet imediatamente
