@@ -83,7 +83,8 @@ function criarDBInicial() {
     lancamentosNotificados: {},
     jogosSemConquistas: {},
     rankingVersion: RANKING_VERSION,
-    ultimaVerificacao: {}
+    ultimaVerificacao: {},
+    jogosAnunciados: [] // array de strings "steamId|appid"
   };
 }
 
@@ -137,6 +138,7 @@ async function inicializarDB() {
     db = dados;
     for (const k of ['ranking', 'conquistas', 'historicoJogos', 'lancamentosNotificados', 'jogosSemConquistas', 'ultimaVerificacao'])
       if (!db[k]) db[k] = {};
+    if (!db.jogosAnunciados) db.jogosAnunciados = [];
     if (!db.ultimaMensagemRankingId) db.ultimaMensagemRankingId = null;
     if (!db.rankingVersion) db.rankingVersion = 0;
     if (db.rankingVersion < RANKING_VERSION) {
@@ -480,8 +482,10 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 9. VERIFICAÇÃO DE CONQUISTAS (AUTOMÁTICA)
+// 9. VERIFICAÇÃO DE CONQUISTAS (COM LOCK PARA EVITAR DUPLICATAS)
 // ============================================================
+let isCheckingAchievements = false;
+
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length || !ACHIEVEMENT_CHANNEL_ID) return;
   let channel = client.channels.cache.get(ACHIEVEMENT_CHANNEL_ID);
@@ -548,34 +552,43 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 // 10. VERIFICAÇÕES PERIÓDICAS
 // ============================================================
 let isCheckingNewGames = false;
+let isCheckingAchievementsLock = false;
 
 async function checkAchievements() {
-  for (const steamId of STEAM_IDS_ARRAY) {
-    const member = MEMBROS[steamId];
-    if (!member) continue;
-    const limit = member.nome === 'Gardemi' ? 6 : 12;
-    const recentGames = await getRecentlyPlayedGames(steamId, limit);
-    if (!recentGames?.length) continue;
-    const unique = [], seen = new Set();
-    for (const g of recentGames) if (!seen.has(g.appid)) { seen.add(g.appid); unique.push(g); }
-    const agora = Date.now(), INTERVALO = 5 * 60 * 1000;
-    const toCheck = [];
-    for (const game of unique) {
-      const appid = game.appid;
-      if (db.jogosSemConquistas?.[appid]) {
-        const diffMin = (Date.now() - new Date(db.jogosSemConquistas[appid].data).getTime()) / 60000;
-        if (diffMin >= 5) { delete db.jogosSemConquistas[appid]; await salvarDBNoCanal(); }
-        else continue;
+  if (isCheckingAchievementsLock) return;
+  isCheckingAchievementsLock = true;
+  try {
+    for (const steamId of STEAM_IDS_ARRAY) {
+      const member = MEMBROS[steamId];
+      if (!member) continue;
+      const limit = member.nome === 'Gardemi' ? 6 : 12;
+      const recentGames = await getRecentlyPlayedGames(steamId, limit);
+      if (!recentGames?.length) continue;
+      const unique = [], seen = new Set();
+      for (const g of recentGames) if (!seen.has(g.appid)) { seen.add(g.appid); unique.push(g); }
+      const agora = Date.now(), INTERVALO = 5 * 60 * 1000;
+      const toCheck = [];
+      for (const game of unique) {
+        const appid = game.appid;
+        if (db.jogosSemConquistas?.[appid]) {
+          const diffMin = (Date.now() - new Date(db.jogosSemConquistas[appid].data).getTime()) / 60000;
+          if (diffMin >= 5) { delete db.jogosSemConquistas[appid]; await salvarDBNoCanal(); }
+          else continue;
+        }
+        const ultima = db.ultimaVerificacao?.[steamId]?.[appid] || 0;
+        if (agora - ultima > INTERVALO) toCheck.push(game);
       }
-      const ultima = db.ultimaVerificacao?.[steamId]?.[appid] || 0;
-      if (agora - ultima > INTERVALO) toCheck.push(game);
+      if (!toCheck.length) continue;
+      await verificarConquistas(steamId, toCheck, `<@${member.discordId}>`, member.nome);
+      if (!db.ultimaVerificacao) db.ultimaVerificacao = {};
+      if (!db.ultimaVerificacao[steamId]) db.ultimaVerificacao[steamId] = {};
+      for (const g of toCheck) db.ultimaVerificacao[steamId][g.appid] = Date.now();
+      await salvarDBNoCanal();
     }
-    if (!toCheck.length) continue;
-    await verificarConquistas(steamId, toCheck, `<@${member.discordId}>`, member.nome);
-    if (!db.ultimaVerificacao) db.ultimaVerificacao = {};
-    if (!db.ultimaVerificacao[steamId]) db.ultimaVerificacao[steamId] = {};
-    for (const g of toCheck) db.ultimaVerificacao[steamId][g.appid] = Date.now();
-    await salvarDBNoCanal();
+  } catch (e) {
+    console.error('❌ Erro em checkAchievements:', e);
+  } finally {
+    isCheckingAchievementsLock = false;
   }
 }
 
@@ -599,7 +612,7 @@ async function checkNewGames() {
       const newGames = allGames.filter(g => !oldIds.includes(g.appid));
       if (!newGames.length) continue;
 
-      // Atualiza histórico imediatamente para evitar duplicação
+      // Atualiza histórico imediatamente
       const updatedIds = [...oldIds, ...newGames.map(g => g.appid)];
       db.historicoJogos[steamId] = updatedIds;
       await salvarDBNoCanal();
@@ -608,18 +621,25 @@ async function checkNewGames() {
       await verificarJogosQueroComprados(steamId, newGames, member.nome);
       await verificarJogosWishlistComprados(steamId, newGames, member.nome);
 
-      // Processa anúncios
+      // Anúncios com chave steamId|appid
       for (const game of newGames) {
-        const compat = await verificarCompatibilidadeFamilia(game.appid);
+        const appid = game.appid;
+        const chave = `${steamId}|${appid}`;
+        if (db.jogosAnunciados.includes(chave)) continue; // já anunciado para este usuário
+
+        const compat = await verificarCompatibilidadeFamilia(appid);
         if (!compat.compatível) continue;
+
+        db.jogosAnunciados.push(chave);
+        await salvarDBNoCanal();
 
         const embed = new EmbedBuilder()
           .setColor(0x00FF00)
           .setTitle('🛒 NOVO JOGO NA FAMÍLIA!')
           .setDescription(`**${member.nome}** agora tem acesso a **${game.name}**!\n\n✅ **Compatível com Família Steam!**`)
-          .addFields({ name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${game.appid})`, inline: false })
+          .addFields({ name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${appid})`, inline: false })
           .setTimestamp();
-        const d = await getGameDetails(game.appid);
+        const d = await getGameDetails(appid);
         if (d?.header_image) embed.setImage(d.header_image);
         await channelNotif.send({ content: `@everyone 🎉 **${member.nome}** comprou um novo jogo!`, embeds: [embed] });
 
@@ -847,7 +867,8 @@ client.on('interactionCreate', async (interaction) => {
         ranking: Object.keys(db.ranking || {}).length,
         conquistas: Object.keys(db.conquistas || {}).length,
         historico: Object.keys(db.historicoJogos || {}).length,
-        version: db.rankingVersion
+        version: db.rankingVersion,
+        jogosAnunciados: db.jogosAnunciados?.length || 0
       },
       cache: { videos: Object.keys(videoCache).length, traducoes: translationCache.size },
       membros: Object.keys(MEMBROS).length,
@@ -860,6 +881,7 @@ client.on('interactionCreate', async (interaction) => {
         { name: '🎯 Conquistas', value: `${status.database.conquistas} registros`, inline: true },
         { name: '🎮 Histórico', value: `${status.database.historico} membros`, inline: true },
         { name: '📚 Versão', value: `${status.database.version}`, inline: true },
+        { name: '📢 Anúncios únicos', value: `${status.database.jogosAnunciados}`, inline: true },
         { name: '🎬 Vídeos cache', value: `${status.cache.videos}`, inline: true },
         { name: '🌐 Traduções', value: `${status.cache.traducoes}`, inline: true },
         { name: '👥 Membros', value: `${status.membros}`, inline: true },
