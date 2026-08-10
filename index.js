@@ -923,21 +923,41 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  // --- /tem ---
+  // --- /tem (CORRIGIDO: verifica compatibilidade antes de mostrar donos) ---
   if (interaction.commandName === 'tem') {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const jogoInput = interaction.options.getString('jogo').trim();
     let info = await searchGameOnSteam(jogoInput);
-    if (!info) { const m = jogoInput.match(/^\d+$/); if (m) { const d = await getGameDetails(parseInt(m[0])); if (d) info = { appid: parseInt(m[0]), nome: d.name, link: `https://store.steampowered.com/app/${m[0]}` }; } }
+    if (!info) {
+      const m = jogoInput.match(/^\d+$/);
+      if (m) { const d = await getGameDetails(parseInt(m[0])); if (d) info = { appid: parseInt(m[0]), nome: d.name, link: `https://store.steampowered.com/app/${m[0]}` }; }
+    }
     if (!info) { await interaction.editReply(`❌ Não encontrei **${jogoInput}**.`); return; }
+
+    // 🔥 VERIFICA COMPATIBILIDADE PRIMEIRO
+    const compat = await verificarCompatibilidadeFamilia(info.appid);
+    if (!compat.compatível) {
+      await interaction.editReply(`⚠️ **${info.nome}** NÃO é compatível com Family Sharing.\nMotivo: ${compat.motivo}\n🔗 ${info.link}`);
+      return;
+    }
+
+    // Se for compatível, verifica quem tem
     let donos = [];
-    for (const sid of STEAM_IDS_ARRAY) if ((db.historicoJogos[sid] || []).includes(info.appid)) { const m = MEMBROS[sid]; if (m) donos.push(m.nome); }
-    if (donos.length) await interaction.editReply(`✅ **${info.nome}** está na família!\n👥 Dono(s): ${donos.join(', ')}\n🔗 ${info.link}`);
-    else await interaction.editReply(`❌ **${info.nome}** NÃO está na família.`);
+    for (const sid of STEAM_IDS_ARRAY) {
+      if ((db.historicoJogos[sid] || []).includes(info.appid)) {
+        const m = MEMBROS[sid];
+        if (m) donos.push(m.nome);
+      }
+    }
+    if (donos.length) {
+      await interaction.editReply(`✅ **${info.nome}** está na família!\n👥 Dono(s): ${donos.join(', ')}\n🔗 ${info.link}`);
+    } else {
+      await interaction.editReply(`❌ **${info.nome}** NÃO está na família.\n🔗 ${info.link}`);
+    }
     return;
   }
 
-  // --- /conquista (com a correção de editReply) ---
+  // --- /conquista ---
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const nomeJogo = interaction.options.getString('jogo').trim();
@@ -1046,7 +1066,6 @@ client.on('interactionCreate', async (interaction) => {
         const ach = conquistasList[idx];
         if (!ach) return;
         const { embed, buttons } = await generateAchievementEmbed(ach, idx);
-        // CORREÇÃO: usar editReply
         await i.editReply({ embeds: [embed], components: [buttons] });
         return;
       }
