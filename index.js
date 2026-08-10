@@ -124,6 +124,18 @@ const WISHLIST_CACHE_FILENAME = 'wishlist_cache.json';
 const WISHLIST_CACHE_DAYS = 15;
 const WISHLIST_CACHE_MS = WISHLIST_CACHE_DAYS * 24 * 60 * 60 * 1000;
 
+// ============================================================
+// CACHE DE SCHEMAS DE CONQUISTAS (PERSISTENTE)
+// ============================================================
+let achievementSchemaCache = {};
+let achievementSchemaCacheMessageId = null;
+const ACHIEVEMENT_SCHEMA_FILENAME = 'achievement_schema_cache.json';
+
+// ============================================================
+// MAPA PARA BOTÕES DE VÍDEO
+// ============================================================
+const videoLinksMap = new Map();
+
 function criarDBInicial() {
   const ranking = {};
   for (const [steamId, jogos] of Object.entries(RANKING_VALUES)) {
@@ -366,6 +378,124 @@ async function salvarWishlistCache() {
     wishlistCacheMessageId = novaMsg.id;
     return true;
   } catch (e) { console.error('❌ Erro ao salvar wishlist cache:', e); return false; }
+}
+
+// === Achievement Schema Cache (persistente) ===
+async function carregarAchievementSchemaCache() {
+  const channel = client.channels.cache.get(QUERO_CHANNEL);
+  if (!channel) return;
+  try {
+    const messages = await channel.messages.fetch({ limit: 50 });
+    const cacheMsg = messages.find(m => m.content === 'ACHIEVEMENT_SCHEMA_CACHE' && m.attachments.size > 0);
+    if (cacheMsg) {
+      achievementSchemaCacheMessageId = cacheMsg.id;
+      const attachment = cacheMsg.attachments.first();
+      if (attachment && attachment.url) {
+        const response = await axios.get(attachment.url, { responseType: 'json' });
+        achievementSchemaCache = response.data;
+        console.log(`✅ Achievement schema cache carregado: ${Object.keys(achievementSchemaCache).length} jogos`);
+        return;
+      }
+    }
+    achievementSchemaCache = {};
+    console.log('📊 Achievement schema cache vazio');
+  } catch (e) {
+    console.error('❌ Erro ao carregar achievement schema cache:', e);
+    achievementSchemaCache = {};
+  }
+}
+
+async function salvarAchievementSchemaCache() {
+  const channel = client.channels.cache.get(QUERO_CHANNEL);
+  if (!channel) return false;
+  try {
+    const messages = await channel.messages.fetch({ limit: 100 });
+    const cacheMessages = messages.filter(m => m.content === 'ACHIEVEMENT_SCHEMA_CACHE' && m.attachments.size > 0);
+    for (const [, msg] of cacheMessages) {
+      if (msg.id !== achievementSchemaCacheMessageId) {
+        try { await msg.delete(); } catch (e) {}
+      }
+    }
+    const jsonData = JSON.stringify(achievementSchemaCache, null, 2);
+    const buffer = Buffer.from(jsonData, 'utf-8');
+    const attachment = new AttachmentBuilder(buffer, { name: ACHIEVEMENT_SCHEMA_FILENAME });
+    if (achievementSchemaCacheMessageId) {
+      try {
+        const antiga = await channel.messages.fetch(achievementSchemaCacheMessageId);
+        if (antiga) {
+          await antiga.edit({ content: 'ACHIEVEMENT_SCHEMA_CACHE', files: [attachment] });
+          return true;
+        }
+      } catch (_) { achievementSchemaCacheMessageId = null; }
+    }
+    const novaMsg = await channel.send({ content: 'ACHIEVEMENT_SCHEMA_CACHE', files: [attachment] });
+    achievementSchemaCacheMessageId = novaMsg.id;
+    return true;
+  } catch (e) {
+    console.error('❌ Erro ao salvar achievement schema cache:', e);
+    return false;
+  }
+}
+
+// ============================================================
+// FUNÇÕES DE CACHE DE CONQUISTAS (USANDO SCHEMA PERSISTENTE)
+// ============================================================
+const translationCache = new Map();
+
+// Limpeza periódica de caches de tradução
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of translationCache) {
+    const parts = key.split('_');
+    const timestamp = parseInt(parts[parts.length - 1]);
+    if (!isNaN(timestamp) && now - timestamp > 3600000) translationCache.delete(key);
+  }
+}, 3600000);
+
+async function getAchievementSchema(appId) {
+  if (achievementSchemaCache[appId]) {
+    return achievementSchemaCache[appId];
+  }
+
+  try {
+    const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
+    const params = { key: STEAM_KEY, appid: appId, l: 'portuguese' };
+    const data = await fetchSteam(url, params, 2);
+    if (data?.game?.availableGameStats?.achievements) {
+      const schema = {};
+      for (const ach of data.game.availableGameStats.achievements) {
+        schema[ach.name] = {
+          displayName: ach.displayName || ach.name,
+          description: ach.description || null,
+          icon: ach.icon || null
+        };
+      }
+      achievementSchemaCache[appId] = schema;
+      await salvarAchievementSchemaCache();
+      return schema;
+    }
+  } catch (e) {
+    console.error(`❌ Erro ao buscar schema para ${appId}:`, e.message);
+  }
+  return null;
+}
+
+async function getAchievementDisplayName(appId, apiname) {
+  const schema = await getAchievementSchema(appId);
+  if (schema && schema[apiname]) return schema[apiname].displayName;
+  return apiname;
+}
+
+async function getAchievementDescription(appId, apiname) {
+  const schema = await getAchievementSchema(appId);
+  if (schema && schema[apiname]) return schema[apiname].description;
+  return null;
+}
+
+async function getAchievementIcon(appId, apiname) {
+  const schema = await getAchievementSchema(appId);
+  if (schema && schema[apiname]) return schema[apiname].icon;
+  return null;
 }
 
 console.log('🚀 [6] Funções de banco de dados e cache definidas.');
@@ -652,64 +782,10 @@ async function getSteamWishlistFromLink(wishlistLink) {
 }
 
 // === Caches de conquistas e traduções ===
-const achievementNameCache = {};
-const achievementDescriptionCache = {};
-const translationCache = new Map();
+// (Removido achievementNameCache e achievementDescriptionCache em favor do schema persistente)
+// Mantemos apenas translationCache (já declarado)
 
-// Limpeza periódica de caches
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, value] of translationCache) {
-    const parts = key.split('_');
-    const timestamp = parseInt(parts[parts.length - 1]);
-    if (!isNaN(timestamp) && now - timestamp > 3600000) translationCache.delete(key);
-  }
-}, 3600000);
-
-setInterval(() => {
-  for (const k of Object.keys(achievementNameCache)) delete achievementNameCache[k];
-  for (const k of Object.keys(achievementDescriptionCache)) delete achievementDescriptionCache[k];
-}, 6 * 3600000);
-
-async function getAchievementDisplayName(appId, apiname) {
-  const cacheKey = `${appId}_${apiname}`;
-  if (achievementNameCache[cacheKey]) return achievementNameCache[cacheKey];
-  try {
-    const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
-    const params = { key: STEAM_KEY, appid: appId, l: 'portuguese' };
-    const data = await fetchSteam(url, params, 2);
-    if (data?.game?.availableGameStats?.achievements) {
-      const ach = data.game.availableGameStats.achievements.find(a => a.name === apiname);
-      if (ach && ach.displayName) {
-        achievementNameCache[cacheKey] = ach.displayName;
-        return ach.displayName;
-      }
-    }
-  } catch (_) {}
-  achievementNameCache[cacheKey] = apiname;
-  return apiname;
-}
-
-async function getAchievementDescription(appId, apiname) {
-  const cacheKey = `${appId}_${apiname}`;
-  if (achievementDescriptionCache[cacheKey]) return achievementDescriptionCache[cacheKey];
-  try {
-    const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
-    const params = { key: STEAM_KEY, appid: appId, l: 'portuguese' };
-    const data = await fetchSteam(url, params, 2);
-    if (data?.game?.availableGameStats?.achievements) {
-      const ach = data.game.availableGameStats.achievements.find(a => a.name === apiname);
-      if (ach && ach.description) {
-        achievementDescriptionCache[cacheKey] = ach.description;
-        return ach.description;
-      }
-    }
-  } catch (e) {
-    console.error(`❌ Erro ao buscar descrição da conquista ${apiname}:`, e.message);
-  }
-  return null;
-}
-
+// === Função para tradução (mantida) ===
 async function traduzirTexto(texto, targetLang = 'pt') {
   if (!texto || texto.length < 3) return texto;
   const cacheKey = `${texto}_${targetLang}_${Date.now()}`;
@@ -972,19 +1048,12 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
     const gameName = game.name || `Jogo ${appid}`;
     if (DEBUG) console.log(`   🎯 ${gameName} (${appid})`);
 
-    let schemaData = null;
-    try {
-      const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
-      const params = { key: STEAM_KEY, appid: appid, l: 'portuguese' };
-      schemaData = await fetchSteam(url, params, 2);
-    } catch (e) {
-      if (DEBUG) console.log(`   ⚠️ Erro ao buscar schema: ${e.message}`);
-    }
-
+    // Usar o schema persistente (já carregado via getAchievementSchema)
+    const schema = await getAchievementSchema(appid);
     const iconMap = {};
-    if (schemaData?.game?.availableGameStats?.achievements) {
-      for (const ach of schemaData.game.availableGameStats.achievements) {
-        if (ach.icon) iconMap[ach.name] = ach.icon;
+    if (schema) {
+      for (const [apiname, data] of Object.entries(schema)) {
+        if (data.icon) iconMap[apiname] = data.icon;
       }
     }
 
@@ -1556,7 +1625,6 @@ client.on('reconnecting', () => {
 // ============================================================
 let conquestMappings = null;
 let conquestMappingsLoaded = false;
-const videoLinksMap = new Map();
 
 async function carregarMapeamentoConquistas() {
   if (conquestMappingsLoaded && conquestMappings) return conquestMappings;
@@ -1657,8 +1725,10 @@ client.once('clientReady', async () => {
     await inicializarDB();
     await carregarVideoCache();
     await carregarWishlistCache();
+    await carregarAchievementSchemaCache(); // NOVO
     console.log(`📊 Video cache: ${Object.keys(videoCache).length}`);
     console.log(`📊 Wishlist cache: ${Object.keys(wishlistCache).length}`);
+    console.log(`📊 Achievement schema cache: ${Object.keys(achievementSchemaCache).length} jogos`);
 
     if (db.rankingVersion < RANKING_VERSION) {
       for (const [steamId, jogos] of Object.entries(RANKING_VALUES)) {
@@ -1788,7 +1858,8 @@ client.on('interactionCreate', async (interaction) => {
       cache: {
         videos: Object.keys(videoCache).length,
         traducoes: translationCache.size,
-        wishlist: Object.keys(wishlistCache).length
+        wishlist: Object.keys(wishlistCache).length,
+        schemas: Object.keys(achievementSchemaCache).length // NOVO
       },
       membros: Object.keys(MEMBROS).length,
       steamIds: STEAM_IDS_ARRAY.length,
@@ -1812,6 +1883,7 @@ client.on('interactionCreate', async (interaction) => {
         { name: '🎬 Vídeos cache', value: `${status.cache.videos}`, inline: true },
         { name: '🌐 Traduções', value: `${status.cache.traducoes}`, inline: true },
         { name: '📋 Wishlist cache', value: `${status.cache.wishlist}`, inline: true },
+        { name: '📘 Schemas cache', value: `${status.cache.schemas}`, inline: true },
         { name: '👥 Membros', value: `${status.membros}`, inline: true },
         { name: '🔄 Steam IDs', value: `${status.steamIds}`, inline: true }
       )
@@ -2124,11 +2196,141 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 28. COMANDO /conquista
+// 28. COMANDO /conquista (COMPLETO E OTIMIZADO)
 // ============================================================
-// (O código completo do /conquista é extenso, mas está incluso no arquivo final)
-// Inclui a busca de vídeos melhorada e o cache de 200 vídeos.
-// ============================================================
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName !== 'conquista') return;
+
+  // Usar deferReply para evitar timeout de 3 segundos
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  try {
+    const nomeJogo = interaction.options.getString('jogo').trim();
+    const userId = interaction.user.id;
+
+    // Descobrir qual Steam ID pertence ao usuário
+    let steamId = null;
+    for (const [sid, member] of Object.entries(MEMBROS)) {
+      if (member.discordId === userId) {
+        steamId = sid;
+        break;
+      }
+    }
+    if (!steamId) {
+      await interaction.editReply('❌ Você não está mapeado como membro da família.');
+      return;
+    }
+
+    // Buscar jogos recentes do usuário para encontrar o appid correto
+    const recentGames = await getRecentlyPlayedGames(steamId, 20);
+    if (!recentGames || recentGames.length === 0) {
+      await interaction.editReply('❌ Não encontrei jogos recentes seus.');
+      return;
+    }
+
+    // Procurar o jogo que corresponde ao nome digitado (case insensitive)
+    const lowerNome = nomeJogo.toLowerCase();
+    let gameFound = recentGames.find(g => g.name.toLowerCase().includes(lowerNome));
+    if (!gameFound) {
+      // Tentar busca na Steam Store
+      const searchResult = await searchGameOnSteam(nomeJogo);
+      if (searchResult) {
+        // Verificar se o jogo está na biblioteca de alguém
+        let found = false;
+        for (const sid of STEAM_IDS_ARRAY) {
+          if ((db.historicoJogos[sid] || []).includes(searchResult.appid)) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          await interaction.editReply(`❌ O jogo **${searchResult.nome}** não está na biblioteca da família.`);
+          return;
+        }
+        gameFound = { appid: searchResult.appid, name: searchResult.nome };
+      } else {
+        await interaction.editReply(`❌ Não encontrei o jogo **${nomeJogo}** na Steam ou na família.`);
+        return;
+      }
+    }
+
+    const appid = gameFound.appid;
+    const nomeJogoFinal = gameFound.name;
+
+    // Buscar conquistas com porcentagem
+    const conquistasData = await getPlayerAchievementsWithPercent(steamId, appid);
+    if (!conquistasData || !conquistasData.achievements || conquistasData.achievements.length === 0) {
+      await interaction.editReply(`ℹ️ **${nomeJogoFinal}** não possui conquistas ou elas são privadas.`);
+      return;
+    }
+
+    const allAchievements = conquistasData.achievements;
+    const desbloqueadas = allAchievements.filter(a => a.achieved === 1);
+    const totalDesbloq = desbloqueadas.length;
+    const totalJogo = allAchievements.length;
+
+    // Ordenar conquistas: primeiro as desbloqueadas, depois as bloqueadas
+    const sorted = [...allAchievements].sort((a, b) => {
+      if (a.achieved === 1 && b.achieved === 0) return -1;
+      if (a.achieved === 0 && b.achieved === 1) return 1;
+      return 0;
+    });
+
+    // Pegar apenas as primeiras 25 para não estourar o limite do embed
+    const maxDisplay = 25;
+    const displayList = sorted.slice(0, maxDisplay);
+    let descricao = `🎮 **${nomeJogoFinal}**\n📊 ${totalDesbloq}/${totalJogo} conquistas desbloqueadas\n\n`;
+
+    // Para cada conquista, montar uma linha
+    for (const ach of displayList) {
+      const nomeAch = await getAchievementDisplayName(appid, ach.apiname);
+      const status = ach.achieved === 1 ? '✅' : '❌';
+      const percent = ach.percentFormatado || 'N/A';
+      descricao += `${status} **${nomeAch}** (${percent})\n`;
+    }
+
+    if (sorted.length > maxDisplay) {
+      descricao += `\n... e mais ${sorted.length - maxDisplay} conquistas.`;
+    }
+
+    // Criar embed
+    const embed = new EmbedBuilder()
+      .setColor(0x00AE86)
+      .setTitle(`🏆 Conquistas de ${nomeJogoFinal}`)
+      .setDescription(descricao)
+      .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
+      .setTimestamp()
+      .setFooter({ text: `Solicitado por ${interaction.user.username}`, iconURL: interaction.user.displayAvatarURL() });
+
+    // Botões para vídeos guia (apenas para conquistas desbloqueadas, no máximo 5)
+    const desbloqParaVideo = desbloqueadas.slice(0, 5);
+    const row = new ActionRowBuilder();
+    for (const ach of desbloqParaVideo) {
+      const nomeAch = await getAchievementDisplayName(appid, ach.apiname);
+      const customId = `video_${appid}_${ach.apiname}`;
+      // Armazenar dados para o botão
+      videoLinksMap.set(customId, { jogo: nomeJogoFinal, conquista: nomeAch });
+      row.addComponents(
+        new ButtonBuilder()
+          .setCustomId(customId)
+          .setLabel(`🎬 ${nomeAch.substring(0, 20)}`)
+          .setStyle(ButtonStyle.Primary)
+      );
+    }
+
+    // Enviar resposta
+    if (row.components.length > 0) {
+      await interaction.editReply({ embeds: [embed], components: [row] });
+    } else {
+      await interaction.editReply({ embeds: [embed] });
+    }
+
+  } catch (error) {
+    console.error('❌ Erro no /conquista:', error);
+    await interaction.editReply('❌ Ocorreu um erro ao buscar conquistas. Tente novamente mais tarde.');
+  }
+});
 
 // ============================================================
 // 29. FALLBACK PARA BOTÕES
@@ -2153,6 +2355,11 @@ client.on('interactionCreate', async (interaction) => {
           content: `🎬 **Vídeo guia para "${videoData.conquista}":**\n${videoInfo.link}`,
           flags: MessageFlags.Ephemeral
         });
+      } else {
+        await interaction.followUp({
+          content: `❌ Não encontrei vídeo guia para "${videoData.conquista}".`,
+          flags: MessageFlags.Ephemeral
+        });
       }
     } catch (error) {
       console.error(`❌ [FALLBACK] Erro:`, error);
@@ -2161,7 +2368,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 30. OUTROS COMANDOS
+// 30. OUTROS COMANDOS (DONO)
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
@@ -2199,6 +2406,9 @@ client.on('messageCreate', async (message) => {
   }
 });
 
+// ============================================================
+// 31. COMANDO /regras
+// ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName === 'regras') {
@@ -2213,7 +2423,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 31. HEALTH CHECK
+// 32. HEALTH CHECK
 // ============================================================
 if (process.env.PORT) {
   try {
@@ -2231,7 +2441,7 @@ if (process.env.PORT) {
 }
 
 // ============================================================
-// 32. LOGIN
+// 33. LOGIN
 // ============================================================
 console.log('🔑 Tentando login...');
 client.login(DISCORD_TOKEN)
