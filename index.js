@@ -92,12 +92,12 @@ console.log('🚀 [5] Constantes definidas.');
 // 3.1 WISHLIST LINKS (FALLBACK PARA TESTE)
 // ============================================================
 const WISHLIST_LINKS_FALLBACK = {
-  '76561198127320557': 'https://store.steampowered.com/wishlist/id/gardemi14/?st=9781845176545064172', // Gardemi
-  '76561197967265286': 'https://store.steampowered.com/wishlist/id/marlon5/?st=12031400973950461745', // Marlon
-  '76561198446717315': 'https://store.steampowered.com/wishlist/id/WoollySkills/?st=13976153632286308648', // WoollySkills
-  '76561198110004039': 'https://store.steampowered.com/wishlist/id/venum781/?sort=discount&st=15535079369621866391', // Venum
-  '76561198848231901': 'https://store.steampowered.com/wishlist/profiles/76561198848231901/?sort=dateadded&st=12664633540339000937', // Mosk
-  '76561198406551864': 'https://store.steampowered.com/wishlist/profiles/76561198406551864/?st=9055044468942286935' // DollynhoMococa
+  '76561198127320557': 'https://store.steampowered.com/wishlist/id/gardemi14/?st=9781845176545064172',
+  '76561197967265286': 'https://store.steampowered.com/wishlist/id/marlon5/?st=12031400973950461745',
+  '76561198446717315': 'https://store.steampowered.com/wishlist/id/WoollySkills/?st=13976153632286308648',
+  '76561198110004039': 'https://store.steampowered.com/wishlist/id/venum781/?sort=discount&st=15535079369621866391',
+  '76561198848231901': 'https://store.steampowered.com/wishlist/profiles/76561198848231901/?sort=dateadded&st=12664633540339000937',
+  '76561198406551864': 'https://store.steampowered.com/wishlist/profiles/76561198406551864/?st=9055044468942286935'
 };
 
 console.log('🚀 [5.1] Wishlist links fallback carregados.');
@@ -170,11 +170,9 @@ async function salvarDBNoCanal() {
     return false;
   }
   try {
-    // Busca todas as mensagens DB_FILE
     const messages = await channel.messages.fetch({ limit: 100 });
     const dbMessages = messages.filter(m => m.content === 'DB_FILE' && m.attachments.size > 0);
     
-    // Se não houver nenhuma, cria uma nova
     if (dbMessages.size === 0) {
       const jsonData = JSON.stringify(db, null, 2);
       const buffer = Buffer.from(jsonData, 'utf-8');
@@ -188,7 +186,6 @@ async function salvarDBNoCanal() {
       return true;
     }
 
-    // Se houver mais de uma, deleta todas e cria uma nova
     if (dbMessages.size > 1) {
       console.log(`⚠️ Encontradas ${dbMessages.size} mensagens DB_FILE. Deletando todas e criando uma nova...`);
       for (const [, msg] of dbMessages) {
@@ -210,10 +207,8 @@ async function salvarDBNoCanal() {
       return true;
     }
 
-    // Se há exatamente uma, verifica se é a que temos guardada ou atualiza
     const existingMsg = dbMessages.first();
     if (dbMessageId && dbMessageId === existingMsg.id) {
-      // Edita a mensagem existente
       const jsonData = JSON.stringify(db, null, 2);
       const buffer = Buffer.from(jsonData, 'utf-8');
       const attachment = new AttachmentBuilder(buffer, { name: 'db.json' });
@@ -224,7 +219,6 @@ async function salvarDBNoCanal() {
       console.log('✅ Banco de dados atualizado (mensagem editada)');
       return true;
     } else {
-      // Se o ID guardado não corresponde, deleta a existente e cria nova
       console.log(`⚠️ ID guardado (${dbMessageId}) não corresponde à mensagem encontrada (${existingMsg.id}). Recriando...`);
       try {
         await existingMsg.delete();
@@ -286,7 +280,7 @@ async function inicializarDB() {
 }
 
 // ============================================================
-// 4.2 CACHE DE VÍDEOS (mantido igual)
+// 4.2 CACHE DE VÍDEOS
 // ============================================================
 async function carregarVideoCache() {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
@@ -312,9 +306,6 @@ async function carregarVideoCache() {
   }
 }
 
-// ============================================================
-// 4.3 SALVAR CACHE DE VÍDEOS (mantido igual)
-// ============================================================
 async function salvarVideoCache() {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
   if (!channel) return false;
@@ -387,7 +378,7 @@ async function saveVideoToCache(jogo, conquista, videoInfo) {
 console.log('🚀 [6] Funções de banco de dados e cache definidas.');
 
 // ============================================================
-// 5. FUNÇÕES DE LISTA /quero (mantido)
+// 5. FUNÇÕES DE LISTA /quero
 // ============================================================
 async function getQueroMessage(discordId) {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
@@ -470,7 +461,7 @@ async function listarQuero(discordId) {
 }
 
 // ============================================================
-// 5.1 FUNÇÕES DE WISHLIST LINK (SALVO NO CANAL)
+// 5.1 FUNÇÕES DE WISHLIST LINK
 // ============================================================
 async function getWishlistLinkMessage(discordId) {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
@@ -508,7 +499,7 @@ async function saveWishlistLink(discordId, link) {
 console.log('🚀 [7] Funções /quero e wishlist carregadas.');
 
 // ============================================================
-// 6. FUNÇÕES DA STEAM API (mantido)
+// 6. FUNÇÕES DA STEAM API
 // ============================================================
 let ultimaRequisicao = 0;
 const MIN_INTERVALO = 1500;
@@ -701,9 +692,6 @@ async function getSteamWishlist(steamId) {
   }
 }
 
-// ============================================================
-// 6.2 FUNÇÃO PARA RESOLVER VANITY URL PARA STEAM ID
-// ============================================================
 async function resolveVanityUrl(vanityName) {
   try {
     const url = `https://api.steampowered.com/ISteamUser/ResolveVanityURL/v1/`;
@@ -727,14 +715,10 @@ async function resolveVanityUrl(vanityName) {
   }
 }
 
-// ============================================================
-// 6.3 FUNÇÃO PARA BUSCAR WISHLIST A PARTIR DO LINK
-// ============================================================
 async function getSteamWishlistFromLink(wishlistLink) {
   try {
     console.log(`🔍 Processando link: ${wishlistLink}`);
     
-    // Tenta extrair SteamID do formato /profiles/STEAMID/
     const profileMatch = wishlistLink.match(/wishlist\/profiles\/(\d+)/);
     if (profileMatch) {
       const steamId = profileMatch[1];
@@ -742,7 +726,6 @@ async function getSteamWishlistFromLink(wishlistLink) {
       return await getSteamWishlist(steamId);
     }
     
-    // Tenta extrair nome de usuário do formato /id/USERNAME/
     const idMatch = wishlistLink.match(/wishlist\/id\/([^\/\?]+)/);
     if (idMatch) {
       const vanityName = idMatch[1];
@@ -1350,14 +1333,12 @@ async function verificarJogosWishlistComprados(steamId, newGames, comprador) {
     console.log(`🔍 Verificando se ${comprador} comprou jogos da wishlist de alguém...`);
     
     for (const [sid, member] of Object.entries(MEMBROS)) {
-      if (sid === steamId) continue; // Ignora o próprio comprador
+      if (sid === steamId) continue;
       
       const discordId = member.discordId;
       
-      // 🔥 TENTA CARREGAR DO CANAL
       let wishlistLink = await loadWishlistLink(discordId);
       
-      // 🔥 SE NÃO TIVER NO CANAL, USA O FALLBACK
       if (!wishlistLink && WISHLIST_LINKS_FALLBACK[sid]) {
         wishlistLink = WISHLIST_LINKS_FALLBACK[sid];
         console.log(`ℹ️ Usando link fallback para ${member.nome}`);
@@ -1370,7 +1351,6 @@ async function verificarJogosWishlistComprados(steamId, newGames, comprador) {
       
       console.log(`🔗 Link de wishlist de ${member.nome}: ${wishlistLink}`);
       
-      // Busca a wishlist a partir do link
       const wishlist = await getSteamWishlistFromLink(wishlistLink);
       if (!wishlist || wishlist.length === 0) {
         console.log(`ℹ️ ${member.nome} não tem wishlist pública ou está vazia`);
@@ -1387,7 +1367,6 @@ async function verificarJogosWishlistComprados(steamId, newGames, comprador) {
         if (jogoNaWishlist) {
           console.log(`🎯 ${comprador} comprou "${nome}" que está na wishlist de ${member.nome}`);
           
-          // Busca detalhes do jogo
           let precoInfo = null;
           let gameDetails = null;
           try {
@@ -1594,10 +1573,7 @@ async function checkNewGames() {
         const newGames = allGames.filter(g => !oldIds.includes(g.appid));
         if (newGames.length === 0) continue;
 
-        // 🔥 VERIFICA SE ALGUÉM TEM ESSES JOGOS NA LISTA /quero
         await verificarJogosQueroComprados(steamId, newGames, userName);
-
-        // 🔥 VERIFICA SE ALGUÉM TEM ESSES JOGOS NA WISHLIST
         await verificarJogosWishlistComprados(steamId, newGames, userName);
 
         for (const game of newGames) {
@@ -1838,7 +1814,6 @@ const client = new Client({
 
 console.log('🚀 [17] Cliente Discord criado.');
 
-// 🔥 LOGS DE DEBUG PARA DIAGNÓSTICO
 client.on('debug', (info) => console.log(`🐛 [DEBUG] ${info}`));
 client.on('warn', (info) => console.warn(`⚠️ [WARN] ${info}`));
 client.on('error', (error) => console.error('❌ [ERROR]', error));
@@ -1850,7 +1825,7 @@ client.on('reconnecting', () => {
 });
 
 // ============================================================
-// 18. EVENTO clientReady (SEM CARREGAMENTO DE MEGA MAN X)
+// 18. EVENTO clientReady
 // ============================================================
 let botIniciado = false;
 const flagFile = path.join(__dirname, 'bot_started.flag');
@@ -2024,7 +1999,13 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'wishlist-link') {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    // DEFER IMEDIATAMENTE - sem nenhuma operação antes
+    try {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      console.error('❌ Falha no deferReply do /wishlist-link:', e);
+      return;
+    }
     
     try {
       const link = interaction.options.getString('link').trim();
@@ -2056,7 +2037,13 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'quero') {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    // DEFER IMEDIATAMENTE
+    try {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      console.error('❌ Falha no deferReply do /quero:', e);
+      return;
+    }
     
     try {
       const jogoInput = interaction.options.getString('jogo').trim();
@@ -2218,7 +2205,12 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'quero-listar') {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    try {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      console.error('❌ Falha no deferReply do /quero-listar:', e);
+      return;
+    }
     
     try {
       const discordId = interaction.user.id;
@@ -2287,7 +2279,12 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'quero-remover') {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    try {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      console.error('❌ Falha no deferReply do /quero-remover:', e);
+      return;
+    }
     
     try {
       const jogoInput = interaction.options.getString('jogo').trim();
@@ -2352,7 +2349,12 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'tem') {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    try {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      console.error('❌ Falha no deferReply do /tem:', e);
+      return;
+    }
     
     try {
       const jogoInput = interaction.options.getString('jogo').trim();
@@ -2428,11 +2430,17 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'conquista') {
+    // DEFER IMEDIATAMENTE
+    try {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      console.error('❌ Falha no deferReply do /conquista:', e);
+      return;
+    }
+
     console.log(`🎮 [COMANDO] /conquista por ${interaction.user.tag}`);
     
     try {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      
       const nomeJogoInput = interaction.options.getString('jogo').trim();
       console.log(`📌 Jogo: "${nomeJogoInput}"`);
 
@@ -2503,8 +2511,6 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      // 🔥 AQUI REMOVEMOS A LÓGICA ESPECIAL PARA MEGA MAN X
-      // Agora todos os jogos usam a API padrão da Steam
       console.log(`🎮 Buscando schema da Steam para o jogo ${appid}...`);
       let schemaData;
       try {
@@ -2725,19 +2731,20 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (i.customId.startsWith('video_')) {
+          // DEFER UPDATE IMEDIATAMENTE
+          try {
+            await i.deferUpdate();
+          } catch (e) {
+            console.error(`❌ Falha no deferUpdate do botão vídeo:`, e);
+            return;
+          }
+
           const videoData = videoLinksMap.get(i.customId);
-          
           if (!videoData) {
-            try {
-              await i.deferUpdate();
-            } catch (e) {
-              console.log(`⚠️ Erro ao fazer deferUpdate: ${e.message}`);
-            }
             return;
           }
 
           try {
-            await i.deferUpdate();
             console.log(`✅ [BOTÃO] DeferUpdate executado para "${videoData.conquista}"`);
             
             const videoPromise = buscarVideoYouTube(videoData.jogo, videoData.conquista);
@@ -2767,11 +2774,13 @@ client.on('interactionCreate', async (interaction) => {
 
         if (i.customId === 'conquista_select') {
           try {
+            // DEFER UPDATE
+            await i.deferUpdate();
             const selectedIndex = parseInt(i.values[0]);
             const ach = conquistasList[selectedIndex];
             const { embed, buttons } = await generateAchievementEmbed(ach, selectedIndex);
 
-            await i.update({
+            await i.editReply({
               embeds: [embed],
               components: [buttons]
             });
@@ -2783,6 +2792,7 @@ client.on('interactionCreate', async (interaction) => {
 
         if (i.customId === 'back_to_list_conq') {
           try {
+            await i.deferUpdate();
             let descricaoAtualizada = `${mensagemAcesso}\n\n`;
             
             if (conquistasDesbloqueadas === 0 && conquistasUsuario.length === 0) {
@@ -2813,7 +2823,7 @@ client.on('interactionCreate', async (interaction) => {
             const selectRow = generateSelectMenu(currentPage);
             const buttonRow = generatePaginationButtons(currentPage);
 
-            await i.update({
+            await i.editReply({
               embeds: [embed],
               components: [selectRow, buttonRow]
             });
@@ -2825,6 +2835,7 @@ client.on('interactionCreate', async (interaction) => {
 
         if (i.customId === 'prev_page_conq' || i.customId === 'next_page_conq') {
           try {
+            await i.deferUpdate();
             const totalPages = Math.ceil(totalConquistas / ITEMS_PER_PAGE);
             if (i.customId === 'prev_page_conq' && currentPage > 0) currentPage--;
             if (i.customId === 'next_page_conq' && currentPage < totalPages - 1) currentPage++;
@@ -2859,7 +2870,7 @@ client.on('interactionCreate', async (interaction) => {
             const selectRow = generateSelectMenu(currentPage);
             const buttonRow = generatePaginationButtons(currentPage);
 
-            await i.update({
+            await i.editReply({
               embeds: [embed],
               components: [selectRow, buttonRow]
             });
@@ -2971,7 +2982,12 @@ client.on('messageCreate', async (message) => {
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName === 'regras') {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    try {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      console.error('❌ Falha no deferReply do /regras:', e);
+      return;
+    }
     try {
       await enviarRegras();
       await interaction.editReply('✅ Mensagem de regras enviada no canal <#' + RULES_CHANNEL + '>.');
