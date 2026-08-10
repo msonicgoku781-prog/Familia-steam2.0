@@ -87,7 +87,6 @@ async function carregarDBDoCanal() {
     if (dbMsg) {
       dbMessageId = dbMsg.id;
       const response = await axios.get(dbMsg.attachments.first().url, { responseType: 'json' });
-      console.log('✅ Banco de dados carregado do anexo.');
       return response.data;
     }
   } catch (e) { console.error('❌ Erro ao carregar banco:', e); }
@@ -119,7 +118,6 @@ async function salvarDBNoCanal() {
         dbMessageId = msg.id;
       }
     }
-    console.log('✅ Banco de dados salvo.');
     return true;
   } catch (e) { console.error('❌ Erro ao salvar banco:', e); return false; }
 }
@@ -141,11 +139,9 @@ async function inicializarDB() {
       db.rankingVersion = RANKING_VERSION;
       await salvarDBNoCanal();
     }
-    console.log(`💾 Banco carregado (versão ${db.rankingVersion})`);
   } else {
     db = criarDBInicial();
     await salvarDBNoCanal();
-    console.log('📊 Banco inicial criado.');
   }
 }
 
@@ -160,10 +156,8 @@ async function carregarVideoCache() {
       videoCacheMessageId = cacheMsg.id;
       const response = await axios.get(cacheMsg.attachments.first().url, { responseType: 'json' });
       videoCache = response.data;
-      console.log(`✅ Cache de vídeos carregado: ${Object.keys(videoCache).length} vídeos`);
-      return;
     }
-    videoCache = {};
+    videoCache = videoCache || {};
   } catch (e) { videoCache = {}; console.error('❌ Erro ao carregar cache de vídeos:', e); }
 }
 
@@ -753,8 +747,6 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
 // 12. CLIENT DISCORD
 // ============================================================
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
-client.on('debug', (i) => console.log(`🐛 [DEBUG] ${i}`));
-client.on('warn', (i) => console.warn(`⚠️ [WARN] ${i}`));
 client.on('error', (e) => console.error('❌ [ERROR]', e));
 
 // ============================================================
@@ -774,7 +766,6 @@ client.once('ready', async () => {
     await salvarDBNoCanal();
     await enviarRanking();
   }
-  // Registrar comandos
   try {
     const commands = [
       { name: 'tem', description: 'Verifica se um jogo está na biblioteca da família', options: [{ name: 'jogo', description: 'Nome do jogo ou link da Steam', type: 3, required: true }] },
@@ -796,7 +787,6 @@ client.once('ready', async () => {
   setInterval(checkNewGames, 300000);
   setInterval(verificarLancamentosQuero, 5 * 60 * 1000);
   setInterval(verificarPromocoesQuero, 5 * 60 * 1000);
-  console.log('🔄 Monitoramento iniciado.');
 
   if (DONO_ID) {
     try { const dono = await client.users.fetch(DONO_ID); await dono.send('🚀 Bot Steam Família online!'); } catch (_) {}
@@ -934,14 +924,12 @@ client.on('interactionCreate', async (interaction) => {
     }
     if (!info) { await interaction.editReply(`❌ Não encontrei **${jogoInput}**.`); return; }
 
-    // 🔥 VERIFICA COMPATIBILIDADE PRIMEIRO
     const compat = await verificarCompatibilidadeFamilia(info.appid);
     if (!compat.compatível) {
       await interaction.editReply(`⚠️ **${info.nome}** NÃO é compatível com Family Sharing.\nMotivo: ${compat.motivo}\n🔗 ${info.link}`);
       return;
     }
 
-    // Se for compatível, verifica quem tem
     let donos = [];
     for (const sid of STEAM_IDS_ARRAY) {
       if ((db.historicoJogos[sid] || []).includes(info.appid)) {
@@ -979,7 +967,6 @@ client.on('interactionCreate', async (interaction) => {
     const compat = await verificarCompatibilidadeFamilia(appid);
     if (!compat.compatível) { await interaction.editReply(`⚠️ **${jogoInfo.nome}** não é compatível.\nMotivo: ${compat.motivo}`); return; }
 
-    // Buscar schema e conquistas do usuário
     let schema;
     try { schema = await fetchSteam('https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/', { key: STEAM_KEY, appid, l: 'portuguese' }, 2); } catch (_) { await interaction.editReply('❌ Erro ao buscar conquistas.'); return; }
     if (!schema?.game?.availableGameStats?.achievements) { await interaction.editReply(`❌ O jogo **${jogoInfo.nome}** não possui conquistas.`); return; }
@@ -1050,7 +1037,6 @@ client.on('interactionCreate', async (interaction) => {
 
     collector.on('collect', async (i) => {
       if (!i.isRepliable()) return;
-      // Vídeo
       if (i.customId.startsWith('video_')) {
         await i.deferUpdate();
         const data = videoLinksMap.get(i.customId);
@@ -1059,7 +1045,6 @@ client.on('interactionCreate', async (interaction) => {
         if (video) await i.followUp({ content: `🎬 **Vídeo guia para "${data.conquista}":**\n${video.link}`, flags: MessageFlags.Ephemeral });
         return;
       }
-      // Select
       if (i.customId === 'conquista_select') {
         await i.deferUpdate();
         const idx = parseInt(i.values[0]);
@@ -1069,7 +1054,6 @@ client.on('interactionCreate', async (interaction) => {
         await i.editReply({ embeds: [embed], components: [buttons] });
         return;
       }
-      // Voltar
       if (i.customId === 'back_to_list_conq') {
         await i.deferUpdate();
         const desc = `${mensagemAcesso}\n\n${desbloq === 0 && userAch.length === 0 ?
@@ -1082,7 +1066,6 @@ client.on('interactionCreate', async (interaction) => {
         await i.editReply({ embeds: [embed], components: [generateSelectMenu(currentPage), generatePaginationButtons(currentPage)] });
         return;
       }
-      // Paginação
       if (i.customId === 'prev_page_conq' || i.customId === 'next_page_conq') {
         await i.deferUpdate();
         const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
