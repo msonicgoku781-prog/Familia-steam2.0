@@ -75,7 +75,16 @@ function criarDBInicial() {
     const member = MEMBROS[steamId];
     if (member) ranking[steamId] = { nome: member.nome, jogos, steamId, discordId: member.discordId };
   }
-  return { ranking, conquistas: {}, historicoJogos: {}, ultimaMensagemRankingId: null, lancamentosNotificados: {}, jogosSemConquistas: {}, rankingVersion: RANKING_VERSION, ultimaVerificacao: {} };
+  return {
+    ranking,
+    conquistas: {},
+    historicoJogos: {},
+    ultimaMensagemRankingId: null,
+    lancamentosNotificados: {},
+    jogosSemConquistas: {},
+    rankingVersion: RANKING_VERSION,
+    ultimaVerificacao: {}
+  };
 }
 
 async function carregarDBDoCanal() {
@@ -538,7 +547,7 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 // ============================================================
 // 10. VERIFICAÇÕES PERIÓDICAS
 // ============================================================
-let isCheckingNewGames = false; // Flag para evitar execuções simultâneas
+let isCheckingNewGames = false;
 
 async function checkAchievements() {
   for (const steamId of STEAM_IDS_ARRAY) {
@@ -570,9 +579,8 @@ async function checkAchievements() {
   }
 }
 
-// ✅ CORREÇÃO: FUNÇÃO checkNewGames COM PREVENÇÃO DE DUPLICIDADE
 async function checkNewGames() {
-  if (isCheckingNewGames) return; // Evita execução simultânea
+  if (isCheckingNewGames) return;
   isCheckingNewGames = true;
   try {
     const channelNotif = client.channels.cache.get(CHANNEL_ID);
@@ -591,17 +599,20 @@ async function checkNewGames() {
       const newGames = allGames.filter(g => !oldIds.includes(g.appid));
       if (!newGames.length) continue;
 
-      // 🔥 ATUALIZA O HISTÓRICO IMEDIATAMENTE PARA EVITAR DUPLICAÇÃO
+      // Atualiza histórico imediatamente para evitar duplicação
       const updatedIds = [...oldIds, ...newGames.map(g => g.appid)];
       db.historicoJogos[steamId] = updatedIds;
       await salvarDBNoCanal();
 
-      // Agora processa as notificações
+      // Verifica /quero e wishlist
       await verificarJogosQueroComprados(steamId, newGames, member.nome);
       await verificarJogosWishlistComprados(steamId, newGames, member.nome);
+
+      // Processa anúncios
       for (const game of newGames) {
         const compat = await verificarCompatibilidadeFamilia(game.appid);
         if (!compat.compatível) continue;
+
         const embed = new EmbedBuilder()
           .setColor(0x00FF00)
           .setTitle('🛒 NOVO JOGO NA FAMÍLIA!')
@@ -611,6 +622,7 @@ async function checkNewGames() {
         const d = await getGameDetails(game.appid);
         if (d?.header_image) embed.setImage(d.header_image);
         await channelNotif.send({ content: `@everyone 🎉 **${member.nome}** comprou um novo jogo!`, embeds: [embed] });
+
         if (db.ranking[steamId]) {
           db.ranking[steamId].jogos += 1;
           await salvarDBNoCanal();
@@ -829,7 +841,18 @@ client.on('interactionCreate', async (interaction) => {
   // --- /dbstatus ---
   if (interaction.commandName === 'dbstatus') {
     if (interaction.user.id !== DONO_ID) { await interaction.reply({ content: '❌ Apenas o dono.', flags: MessageFlags.Ephemeral }); return; }
-    const status = { database: { tamanho: JSON.stringify(db).length, ranking: Object.keys(db.ranking || {}).length, conquistas: Object.keys(db.conquistas || {}).length, historico: Object.keys(db.historicoJogos || {}).length, version: db.rankingVersion }, cache: { videos: Object.keys(videoCache).length, traducoes: translationCache.size }, membros: Object.keys(MEMBROS).length, steamIds: STEAM_IDS_ARRAY.length };
+    const status = {
+      database: {
+        tamanho: JSON.stringify(db).length,
+        ranking: Object.keys(db.ranking || {}).length,
+        conquistas: Object.keys(db.conquistas || {}).length,
+        historico: Object.keys(db.historicoJogos || {}).length,
+        version: db.rankingVersion
+      },
+      cache: { videos: Object.keys(videoCache).length, traducoes: translationCache.size },
+      membros: Object.keys(MEMBROS).length,
+      steamIds: STEAM_IDS_ARRAY.length
+    };
     const embed = new EmbedBuilder().setColor(0x00AE86).setTitle('📊 Status do Banco de Dados')
       .addFields(
         { name: '📦 Tamanho', value: `${(status.database.tamanho/1024).toFixed(2)} KB`, inline: true },
