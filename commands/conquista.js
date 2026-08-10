@@ -25,7 +25,7 @@ function isoDurationToSeconds(iso) {
 }
 
 /**
- * Extrai o ID do YouTube a partir de uma URL ou texto contendo links.
+ * Extrai o ID do YouTube a partir de uma URL ou texto contendo links e thumbnails.
  */
 function extractYouTubeId(text) {
   if (!text) return null;
@@ -34,14 +34,22 @@ function extractYouTubeId(text) {
     /(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([A-Za-z0-9_-]{11})/i,
     /(?:https?:\/\/)?(?:www\.)?youtube\.com\/shorts\/([A-Za-z0-9_-]{11})/i,
     /(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([A-Za-z0-9_-]{11})/i,
+    /(?:https?:\/\/)?i\.ytimg\.com\/vi\/([A-Za-z0-9_-]{11})/i,
+    /([A-Za-z0-9_-]{11})/i // fallback (will be last resort)
   ];
-  for (const re of patterns) {
+
+  for (const re of patterns.slice(0, patterns.length - 1)) {
     const m = text.match(re);
     if (m && m[1]) return m[1];
   }
-  // fallback: try to find any 11-char id-looking substring after v=
+
+  // fallback: attempt to find a 11-char id after v=
   const m2 = text.match(/v=([A-Za-z0-9_-]{11})/);
-  return m2 ? m2[1] : null;
+  if (m2) return m2[1];
+
+  // last resort: find any 11-char token (may produce false positives)
+  const m3 = text.match(/([A-Za-z0-9_-]{11})/);
+  return m3 ? m3[1] : null;
 }
 
 /**
@@ -76,7 +84,7 @@ async function searchTrophyVideos(game, trophyName, maxResults = 5) {
   const q = `${game} ${trophyName} trophy achievement conquista troféu shorts`;
 
   // 1) Busca priorizando vídeos curtos (< 4min)
-  const shortUrl = `${base}?key=${apiKey}&part=snippet&type=video&videoDuration=short&order=relevance&maxResults=${maxResults}&q=${encodeURIComponent(q)}`;
+  const shortUrl = `${base}?key=${apiKey}&part=snippet&type=video&videoDuration=short&order=relevance&maxResults=${Math.min(maxResults, 50)}&q=${encodeURIComponent(q)}`;
   const shortResp = await fetch(shortUrl).then(r => r.json());
   const shortItemsRaw = (shortResp.items || []).map(it => ({
     id: it.id.videoId,
@@ -102,8 +110,8 @@ async function searchTrophyVideos(game, trophyName, maxResults = 5) {
 
   // 2) Fallback: busca mais ampla (sem filtro de duração), pegar mais resultados
   // aumentamos allMax para ter mais candidatos e reduzir chance de duplicatas
-  const allMax = Math.max(25, maxResults * 6);
-  const allUrl = `${base}?key=${apiKey}&part=snippet&type=video&order=relevance&maxResults=${allMax}&q=${encodeURIComponent(q)}`;
+  const allMax = Math.max(50, maxResults * 6);
+  const allUrl = `${base}?key=${apiKey}&part=snippet&type=video&order=relevance&maxResults=${Math.min(allMax,50)}&q=${encodeURIComponent(q)}`;
   const allResp = await fetch(allUrl).then(r => r.json());
   const allItemsRaw = (allResp.items || []).map(it => ({
     id: it.id.videoId,
@@ -141,38 +149,50 @@ async function searchTrophyVideos(game, trophyName, maxResults = 5) {
 
 /**
  * Busca no canal DB_CHANNEL_ID por mensagens e extrai IDs de vídeos já salvos.
- * Retorna um Set de video IDs.
+ * Paginação até maxMessages (padrão 1000). Retorna um Set de video IDs.
  */
-async function fetchSavedVideoIds(client) {
+async function fetchSavedVideoIds(client, maxMessages = 1000) {
   const saved = new Set();
   if (!client) return saved;
   try {
     const channel = await client.channels.fetch(DB_CHANNEL_ID).catch(() => null);
     if (!channel || !channel.isText()) return saved;
 
-    // Pegamos até 200 mensagens recentes (ajuste se necessário)
-    const fetched = await channel.messages.fetch({ limit: 200 });
-    for (const msg of fetched.values()) {
-      // procurar nos embeds e no conteúdo
-      if (msg.content) {
-        const id = extractYouTubeId(msg.content);
-        if (id) saved.add(id);
-      }
-      if (msg.embeds && msg.embeds.length) {
-        for (const e of msg.embeds) {
-          if (e.url) {
-            const id = extractYouTubeId(e.url);
-            if (id) saved.add(id);
-          }
-          if (e.description) {
-            const id2 = extractYouTubeId(e.description);
-            if (id2) saved.add(id2);
+    let lastId = null;
+    let fetchedTotal = 0;
+    while (fetchedTotal < maxMessages) {
+      const limit = Math.min(100, maxMessages - fetchedTotal);
+      const options = { limit };
+      if (lastId) options.before = lastId;
+      const fetched = await channel.messages.fetch(options);
+      if (!fetched || fetched.size === 0) break;
+      for (const msg of fetched.values()) {
+        fetchedTotal++;
+        if (msg.content) {
+          const id = extractYouTubeId(msg.content);
+          if (id) saved.add(id);
+        }
+        if (msg.embeds && msg.embeds.length) {
+          for (const e of msg.embeds) {
+            if (e.url) {
+              const id = extractYouTubeId(e.url);
+              if (id) saved.add(id);
+            }
+            if (e.thumbnail && e.thumbnail.url) {
+              const id2 = extractYouTubeId(e.thumbnail.url);
+              if (id2) saved.add(id2);
+            }
+            if (e.description) {
+              const id3 = extractYouTubeId(e.description);
+              if (id3) saved.add(id3);
+            }
           }
         }
+        lastId = msg.id;
       }
+      if (fetched.size < limit) break; // sem mais mensagens
     }
   } catch (err) {
-    // falhar silenciosamente — retornamos o set que pode estar vazio
     console.error('Erro ao buscar DB channel messages:', err);
   }
   return saved;
@@ -180,7 +200,7 @@ async function fetchSavedVideoIds(client) {
 
 /**
  * Salva (envia) no canal DB_CHANNEL_ID apenas os vídeos que ainda não constam lá.
- * Retorna quantidade de novos salvos.
+ * Retorna quantidade de novos salvos. Atualiza existingSet conforme salva para evitar condições de corrida.
  */
 async function saveNewVideosToChannel(client, videos, existingSet) {
   if (!client) return 0;
@@ -191,16 +211,19 @@ async function saveNewVideosToChannel(client, videos, existingSet) {
     const toSave = videos.filter(v => !existingSet.has(v.id));
     if (toSave.length === 0) return 0;
 
-    // Enviar uma mensagem única com a lista para não spam
-    const lines = toSave.map(v => `🔖 ${v.title} — ${v.channelTitle}\n${v.url}`);
-    // dividir em blocos de 10 para evitar limite de tamanho
+    // Enviar em blocos para evitar limite de tamanho; mas atualizamos existingSet conforme enviamos
     const chunkSize = 10;
-    for (let i = 0; i < lines.length; i += chunkSize) {
-      const chunk = lines.slice(i, i + chunkSize).join('\n\n');
-      await channel.send({ content: `Novos vídeos salvos:\n\n${chunk}` });
+    let savedCount = 0;
+    for (let i = 0; i < toSave.length; i += chunkSize) {
+      const chunk = toSave.slice(i, i + chunkSize);
+      const lines = chunk.map(v => `🔖 ${v.title} — ${v.channelTitle}\n${v.url}\nID: ${v.id}`);
+      await channel.send({ content: `Novos vídeos salvos:\n\n${lines.join('\n\n')}` });
+      // Atualizar existingSet imediatamente
+      for (const v of chunk) existingSet.add(v.id);
+      savedCount += chunk.length;
     }
 
-    return toSave.length;
+    return savedCount;
   } catch (err) {
     console.error('Erro ao salvar vídeos no canal DB:', err);
     return 0;
@@ -222,34 +245,32 @@ module.exports = {
       const name = interaction.options.getString('nome');
       const limit = interaction.options.getInteger('limite') ?? 3;
 
-      // 1) Buscar vídeos (com maior pool para compensar filtragem)
-      const candidates = await searchTrophyVideos(game, name, Math.max(limit, 15));
+      // 1) Buscar um pool maior de candidatos
+      const candidates = await searchTrophyVideos(game, name, Math.max(limit, 30));
       if (!candidates || candidates.length === 0) {
         return interaction.editReply(`Não consegui encontrar vídeos para: **${game} — ${name}**.`);
       }
 
-      // 2) Buscar IDs já salvos no canal DB
-      const savedSet = await fetchSavedVideoIds(interaction.client);
+      // 2) Buscar IDs já salvos no canal DB (paginar até 1000 mensagens)
+      const savedSet = await fetchSavedVideoIds(interaction.client, 1000);
 
       // 3) Filtrar candidatos para remover vídeos já salvos
-      const uniqueCandidates = candidates.filter(v => !savedSet.has(v.id));
+      let uniqueCandidates = candidates.filter(v => !savedSet.has(v.id));
 
       // Se não houver candidatos únicos suficientes, pegamos mais vídeos (tentativa extra)
-      let finalResults = uniqueCandidates.slice(0, limit);
-      if (finalResults.length < limit) {
-        // tentar expandir buscando mais (segundo passe)
-        const more = await searchTrophyVideos(game, name, Math.max(limit * 3, 30));
+      if (uniqueCandidates.length < limit) {
+        const more = await searchTrophyVideos(game, name, Math.max(limit * 4, 60));
         const moreFiltered = more.filter(v => !savedSet.has(v.id));
-        // juntar mantendo ordem e sem duplicatas
-        const combined = uniqueById([...finalResults, ...moreFiltered]);
-        finalResults = combined.slice(0, limit);
+        uniqueCandidates = uniqueById([...uniqueCandidates, ...moreFiltered]);
       }
+
+      const finalResults = uniqueCandidates.slice(0, limit);
 
       if (!finalResults || finalResults.length === 0) {
         return interaction.editReply(`Todos os vídeos encontrados para **${game} — ${name}** já estão salvos no canal de controle.`);
       }
 
-      // 4) Salvar os novos vídeos selecionados no canal DB (apenas os que ainda não estão lá)
+      // 4) Salvar os novos vídeos selecionados no canal DB (apenas os que ainda não estão lá). Atualiza savedSet internamente.
       await saveNewVideosToChannel(interaction.client, finalResults, savedSet).catch(() => {});
 
       // 5) Responder ao usuário com os resultados finais
