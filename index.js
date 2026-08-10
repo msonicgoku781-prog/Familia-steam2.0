@@ -68,6 +68,8 @@ const WISHLIST_LINKS_FALLBACK = {
 // ============================================================
 let db = null, dbMessageId = null, videoCache = {}, videoCacheMessageId = null;
 const VIDEO_CACHE_FILENAME = 'video_cache.json';
+// 🔥 VARIÁVEL GLOBAL PARA OS LINKS DE VÍDEO (usado no fallback)
+let globalVideoLinksMap = new Map();
 
 function criarDBInicial() {
   const ranking = {};
@@ -84,7 +86,7 @@ function criarDBInicial() {
     jogosSemConquistas: {},
     rankingVersion: RANKING_VERSION,
     ultimaVerificacao: {},
-    jogosAnunciados: [] // array de strings "steamId|appid"
+    jogosAnunciados: []
   };
 }
 
@@ -612,20 +614,17 @@ async function checkNewGames() {
       const newGames = allGames.filter(g => !oldIds.includes(g.appid));
       if (!newGames.length) continue;
 
-      // Atualiza histórico imediatamente
       const updatedIds = [...oldIds, ...newGames.map(g => g.appid)];
       db.historicoJogos[steamId] = updatedIds;
       await salvarDBNoCanal();
 
-      // Verifica /quero e wishlist
       await verificarJogosQueroComprados(steamId, newGames, member.nome);
       await verificarJogosWishlistComprados(steamId, newGames, member.nome);
 
-      // Anúncios com chave steamId|appid
       for (const game of newGames) {
         const appid = game.appid;
         const chave = `${steamId}|${appid}`;
-        if (db.jogosAnunciados.includes(chave)) continue; // já anunciado para este usuário
+        if (db.jogosAnunciados.includes(chave)) continue;
 
         const compat = await verificarCompatibilidadeFamilia(appid);
         if (!compat.compatível) continue;
@@ -809,9 +808,9 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBit
 client.on('error', (e) => console.error('❌ [ERROR]', e));
 
 // ============================================================
-// 13. READY
+// 13. READY (USANDO clientReady PARA EVITAR DEPRECATION)
 // ============================================================
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`✅ Bot online como ${client.user.tag}`);
   await inicializarDB();
   await carregarVideoCache();
@@ -1057,7 +1056,8 @@ client.on('interactionCreate', async (interaction) => {
 
     const ITEMS_PER_PAGE = 10;
     let currentPage = 0;
-    const videoLinksMap = new Map();
+    // 🔥 USAR A VARIÁVEL GLOBAL
+    globalVideoLinksMap = new Map();
 
     async function generateAchievementEmbed(ach, index) {
       let imageUrl = ach.icon ? (ach.icon.startsWith('http') ? ach.icon : `https://cdn.steamstatic.com/steamcommunity/public/images/apps/${appid}/${ach.icon}`) : null;
@@ -1070,7 +1070,7 @@ client.on('interactionCreate', async (interaction) => {
       const buttons = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('back_to_list_conq').setLabel('🔙 Voltar à lista').setStyle(ButtonStyle.Secondary));
       if (YOUTUBE_API_KEY) {
         const vidId = `video_${ach.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        videoLinksMap.set(vidId, { jogo: jogoInfo.nome, conquista: ach.displayName, appid, achName: ach.name });
+        globalVideoLinksMap.set(vidId, { jogo: jogoInfo.nome, conquista: ach.displayName, appid, achName: ach.name });
         buttons.addComponents(new ButtonBuilder().setCustomId(vidId).setLabel('🎬 Buscar vídeo guia').setStyle(ButtonStyle.Primary));
       }
       return { embed, buttons };
@@ -1111,7 +1111,7 @@ client.on('interactionCreate', async (interaction) => {
       if (!i.isRepliable()) return;
       if (i.customId.startsWith('video_')) {
         await i.deferUpdate();
-        const data = videoLinksMap.get(i.customId);
+        const data = globalVideoLinksMap.get(i.customId);
         if (!data) return;
         const video = await buscarVideoYouTube(data.jogo, data.conquista);
         if (video) await i.followUp({ content: `🎬 **Vídeo guia para "${data.conquista}":**\n${video.link}`, flags: MessageFlags.Ephemeral });
@@ -1165,7 +1165,7 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
   if (interaction.customId.startsWith('video_')) {
     if (!interaction.isRepliable()) return;
-    const data = videoLinksMap?.get(interaction.customId);
+    const data = globalVideoLinksMap?.get(interaction.customId);
     if (!data) { try { await interaction.deferUpdate(); } catch (_) {} return; }
     await interaction.deferUpdate();
     const video = await buscarVideoYouTube(data.jogo, data.conquista);
