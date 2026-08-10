@@ -89,7 +89,7 @@ const ACHIEVEMENT_EMOJI = '<:Trofeu:1525724119142891571>';
 console.log('🚀 [5] Constantes definidas.');
 
 // ============================================================
-// 3.1 WISHLIST LINKS (FALLBACK)
+// 3.1 WISHLIST LINKS (FALLBACK PARA TESTE)
 // ============================================================
 const WISHLIST_LINKS_FALLBACK = {
   '76561198127320557': 'https://store.steampowered.com/wishlist/id/gardemi14/?st=9781845176545064172', // Gardemi
@@ -170,9 +170,11 @@ async function salvarDBNoCanal() {
     return false;
   }
   try {
+    // Busca todas as mensagens DB_FILE
     const messages = await channel.messages.fetch({ limit: 100 });
     const dbMessages = messages.filter(m => m.content === 'DB_FILE' && m.attachments.size > 0);
     
+    // Se não houver nenhuma, cria uma nova
     if (dbMessages.size === 0) {
       const jsonData = JSON.stringify(db, null, 2);
       const buffer = Buffer.from(jsonData, 'utf-8');
@@ -186,6 +188,7 @@ async function salvarDBNoCanal() {
       return true;
     }
 
+    // Se houver mais de uma, deleta todas e cria uma nova
     if (dbMessages.size > 1) {
       console.log(`⚠️ Encontradas ${dbMessages.size} mensagens DB_FILE. Deletando todas e criando uma nova...`);
       for (const [, msg] of dbMessages) {
@@ -207,8 +210,10 @@ async function salvarDBNoCanal() {
       return true;
     }
 
+    // Se há exatamente uma, verifica se é a que temos guardada ou atualiza
     const existingMsg = dbMessages.first();
     if (dbMessageId && dbMessageId === existingMsg.id) {
+      // Edita a mensagem existente
       const jsonData = JSON.stringify(db, null, 2);
       const buffer = Buffer.from(jsonData, 'utf-8');
       const attachment = new AttachmentBuilder(buffer, { name: 'db.json' });
@@ -219,6 +224,7 @@ async function salvarDBNoCanal() {
       console.log('✅ Banco de dados atualizado (mensagem editada)');
       return true;
     } else {
+      // Se o ID guardado não corresponde, deleta a existente e cria nova
       console.log(`⚠️ ID guardado (${dbMessageId}) não corresponde à mensagem encontrada (${existingMsg.id}). Recriando...`);
       try {
         await existingMsg.delete();
@@ -280,7 +286,7 @@ async function inicializarDB() {
 }
 
 // ============================================================
-// 4.2 CACHE DE VÍDEOS
+// 4.2 CACHE DE VÍDEOS (mantido igual)
 // ============================================================
 async function carregarVideoCache() {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
@@ -306,6 +312,9 @@ async function carregarVideoCache() {
   }
 }
 
+// ============================================================
+// 4.3 SALVAR CACHE DE VÍDEOS (mantido igual)
+// ============================================================
 async function salvarVideoCache() {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
   if (!channel) return false;
@@ -378,7 +387,7 @@ async function saveVideoToCache(jogo, conquista, videoInfo) {
 console.log('🚀 [6] Funções de banco de dados e cache definidas.');
 
 // ============================================================
-// 5. FUNÇÕES DE LISTA /quero
+// 5. FUNÇÕES DE LISTA /quero (mantido)
 // ============================================================
 async function getQueroMessage(discordId) {
   const channel = client.channels.cache.get(QUERO_CHANNEL);
@@ -725,6 +734,7 @@ async function getSteamWishlistFromLink(wishlistLink) {
   try {
     console.log(`🔍 Processando link: ${wishlistLink}`);
     
+    // Tenta extrair SteamID do formato /profiles/STEAMID/
     const profileMatch = wishlistLink.match(/wishlist\/profiles\/(\d+)/);
     if (profileMatch) {
       const steamId = profileMatch[1];
@@ -732,6 +742,7 @@ async function getSteamWishlistFromLink(wishlistLink) {
       return await getSteamWishlist(steamId);
     }
     
+    // Tenta extrair nome de usuário do formato /id/USERNAME/
     const idMatch = wishlistLink.match(/wishlist\/id\/([^\/\?]+)/);
     if (idMatch) {
       const vanityName = idMatch[1];
@@ -1339,11 +1350,14 @@ async function verificarJogosWishlistComprados(steamId, newGames, comprador) {
     console.log(`🔍 Verificando se ${comprador} comprou jogos da wishlist de alguém...`);
     
     for (const [sid, member] of Object.entries(MEMBROS)) {
-      if (sid === steamId) continue;
+      if (sid === steamId) continue; // Ignora o próprio comprador
       
       const discordId = member.discordId;
       
+      // 🔥 TENTA CARREGAR DO CANAL
       let wishlistLink = await loadWishlistLink(discordId);
+      
+      // 🔥 SE NÃO TIVER NO CANAL, USA O FALLBACK
       if (!wishlistLink && WISHLIST_LINKS_FALLBACK[sid]) {
         wishlistLink = WISHLIST_LINKS_FALLBACK[sid];
         console.log(`ℹ️ Usando link fallback para ${member.nome}`);
@@ -1356,6 +1370,7 @@ async function verificarJogosWishlistComprados(steamId, newGames, comprador) {
       
       console.log(`🔗 Link de wishlist de ${member.nome}: ${wishlistLink}`);
       
+      // Busca a wishlist a partir do link
       const wishlist = await getSteamWishlistFromLink(wishlistLink);
       if (!wishlist || wishlist.length === 0) {
         console.log(`ℹ️ ${member.nome} não tem wishlist pública ou está vazia`);
@@ -1372,6 +1387,7 @@ async function verificarJogosWishlistComprados(steamId, newGames, comprador) {
         if (jogoNaWishlist) {
           console.log(`🎯 ${comprador} comprou "${nome}" que está na wishlist de ${member.nome}`);
           
+          // Busca detalhes do jogo
           let precoInfo = null;
           let gameDetails = null;
           try {
@@ -1578,7 +1594,10 @@ async function checkNewGames() {
         const newGames = allGames.filter(g => !oldIds.includes(g.appid));
         if (newGames.length === 0) continue;
 
+        // 🔥 VERIFICA SE ALGUÉM TEM ESSES JOGOS NA LISTA /quero
         await verificarJogosQueroComprados(steamId, newGames, userName);
+
+        // 🔥 VERIFICA SE ALGUÉM TEM ESSES JOGOS NA WISHLIST
         await verificarJogosWishlistComprados(steamId, newGames, userName);
 
         for (const game of newGames) {
@@ -1807,7 +1826,7 @@ async function buscarVideoYouTube(nomeJogo, nomeConquista) {
 console.log('🚀 [16] Função de busca de vídeos carregada.');
 
 // ============================================================
-// 17. CLIENT DISCORD
+// 17. CLIENT DISCORD (COM LOGS DE DEBUG)
 // ============================================================
 const client = new Client({
   intents: [
@@ -1819,6 +1838,7 @@ const client = new Client({
 
 console.log('🚀 [17] Cliente Discord criado.');
 
+// 🔥 LOGS DE DEBUG PARA DIAGNÓSTICO
 client.on('debug', (info) => console.log(`🐛 [DEBUG] ${info}`));
 client.on('warn', (info) => console.warn(`⚠️ [WARN] ${info}`));
 client.on('error', (error) => console.error('❌ [ERROR]', error));
@@ -1883,13 +1903,13 @@ async function carregarMapeamentoDoCanal(channel) {
 }
 
 // ============================================================
-// 19. EVENTO clientReady
+// 19. EVENTO clientReady (COM LOG ADICIONAL)
 // ============================================================
 let botIniciado = false;
 const flagFile = path.join(__dirname, 'bot_started.flag');
 
 client.once('clientReady', async () => {
-  console.log('✅ clientReady DISPARADO!');
+  console.log('✅ clientReady DISPARADO!'); // <-- LOG ADICIONAL
   console.log(`✅ Bot online como ${client.user.tag}`);
   console.log(`📋 Banco de dados armazenado como anexo no canal: <#${QUERO_CHANNEL}>`);
   console.log(`📢 ACHIEVEMENT_CHANNEL_ID configurado: ${ACHIEVEMENT_CHANNEL_ID || 'NÃO DEFINIDO'}`);
@@ -2457,7 +2477,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 26. COMANDO /conquista (CORRIGIDO - SEM BLOQUEIO DE COMPATIBILIDADE)
+// 26. COMANDO /conquista (COMPLETO E OTIMIZADO)
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2491,7 +2511,6 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      // Verifica se o jogo está na família (apenas informação, não bloqueia)
       let jogoNaFamilia = false;
       let donosDoJogo = [];
       
@@ -2528,13 +2547,16 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // Se o jogo não estiver na família, avisa mas continua
       if (!jogoNaFamilia) {
-        await interaction.editReply(`⚠️ **${jogoInfo.nome}** não está na biblioteca da família, mas você pode ver as conquistas mesmo assim.`);
-        // Não retorna, continua
+        await interaction.editReply(`❌ Nenhum membro da família possui **${jogoInfo.nome}**.`);
+        return;
       }
 
-      // 🔥 REMOVIDA A VERIFICAÇÃO DE COMPATIBILIDADE QUE BLOQUEAVA
+      const compat = await verificarCompatibilidadeFamilia(appid);
+      if (!compat.compatível) {
+        await interaction.editReply(`⚠️ **${jogoInfo.nome}** não é compatível com Family Sharing.\nMotivo: ${compat.motivo}`);
+        return;
+      }
 
       const isMegaManX = (appid === 743890);
       let conquistasSchema = [];
