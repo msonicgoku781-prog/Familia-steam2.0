@@ -538,6 +538,8 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
 // ============================================================
 // 10. VERIFICAÇÕES PERIÓDICAS
 // ============================================================
+let isCheckingNewGames = false; // Flag para evitar execuções simultâneas
+
 async function checkAchievements() {
   for (const steamId of STEAM_IDS_ARRAY) {
     const member = MEMBROS[steamId];
@@ -568,33 +570,58 @@ async function checkAchievements() {
   }
 }
 
+// ✅ CORREÇÃO: FUNÇÃO checkNewGames COM PREVENÇÃO DE DUPLICIDADE
 async function checkNewGames() {
-  const channelNotif = client.channels.cache.get(CHANNEL_ID);
-  if (!channelNotif) return;
-  for (const steamId of STEAM_IDS_ARRAY) {
-    const allGames = await getOwnedGames(steamId);
-    if (!allGames.length) continue;
-    const member = MEMBROS[steamId];
-    if (!member) continue;
-    if (!db.historicoJogos[steamId]) { db.historicoJogos[steamId] = allGames.map(g => g.appid); await salvarDBNoCanal(); continue; }
-    const oldIds = db.historicoJogos[steamId] || [];
-    const newGames = allGames.filter(g => !oldIds.includes(g.appid));
-    if (!newGames.length) continue;
-    await verificarJogosQueroComprados(steamId, newGames, member.nome);
-    await verificarJogosWishlistComprados(steamId, newGames, member.nome);
-    for (const game of newGames) {
-      const compat = await verificarCompatibilidadeFamilia(game.appid);
-      if (!compat.compatível) continue;
-      const embed = new EmbedBuilder().setColor(0x00FF00).setTitle('🛒 NOVO JOGO NA FAMÍLIA!')
-        .setDescription(`**${member.nome}** agora tem acesso a **${game.name}**!\n\n✅ **Compatível com Família Steam!**`)
-        .addFields({ name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${game.appid})`, inline: false }).setTimestamp();
-      const d = await getGameDetails(game.appid);
-      if (d?.header_image) embed.setImage(d.header_image);
-      await channelNotif.send({ content: `@everyone 🎉 **${member.nome}** comprou um novo jogo!`, embeds: [embed] });
-      if (db.ranking[steamId]) { db.ranking[steamId].jogos += 1; await salvarDBNoCanal(); await enviarRanking(); }
+  if (isCheckingNewGames) return; // Evita execução simultânea
+  isCheckingNewGames = true;
+  try {
+    const channelNotif = client.channels.cache.get(CHANNEL_ID);
+    if (!channelNotif) return;
+    for (const steamId of STEAM_IDS_ARRAY) {
+      const allGames = await getOwnedGames(steamId);
+      if (!allGames.length) continue;
+      const member = MEMBROS[steamId];
+      if (!member) continue;
+      if (!db.historicoJogos[steamId]) {
+        db.historicoJogos[steamId] = allGames.map(g => g.appid);
+        await salvarDBNoCanal();
+        continue;
+      }
+      const oldIds = db.historicoJogos[steamId] || [];
+      const newGames = allGames.filter(g => !oldIds.includes(g.appid));
+      if (!newGames.length) continue;
+
+      // 🔥 ATUALIZA O HISTÓRICO IMEDIATAMENTE PARA EVITAR DUPLICAÇÃO
+      const updatedIds = [...oldIds, ...newGames.map(g => g.appid)];
+      db.historicoJogos[steamId] = updatedIds;
+      await salvarDBNoCanal();
+
+      // Agora processa as notificações
+      await verificarJogosQueroComprados(steamId, newGames, member.nome);
+      await verificarJogosWishlistComprados(steamId, newGames, member.nome);
+      for (const game of newGames) {
+        const compat = await verificarCompatibilidadeFamilia(game.appid);
+        if (!compat.compatível) continue;
+        const embed = new EmbedBuilder()
+          .setColor(0x00FF00)
+          .setTitle('🛒 NOVO JOGO NA FAMÍLIA!')
+          .setDescription(`**${member.nome}** agora tem acesso a **${game.name}**!\n\n✅ **Compatível com Família Steam!**`)
+          .addFields({ name: '🔗 Link', value: `[Ver na Steam](https://store.steampowered.com/app/${game.appid})`, inline: false })
+          .setTimestamp();
+        const d = await getGameDetails(game.appid);
+        if (d?.header_image) embed.setImage(d.header_image);
+        await channelNotif.send({ content: `@everyone 🎉 **${member.nome}** comprou um novo jogo!`, embeds: [embed] });
+        if (db.ranking[steamId]) {
+          db.ranking[steamId].jogos += 1;
+          await salvarDBNoCanal();
+          await enviarRanking();
+        }
+      }
     }
-    db.historicoJogos[steamId] = allGames.map(g => g.appid);
-    await salvarDBNoCanal();
+  } catch (e) {
+    console.error('❌ Erro em checkNewGames:', e);
+  } finally {
+    isCheckingNewGames = false;
   }
 }
 
@@ -913,7 +940,7 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  // --- /tem (CORRIGIDO: verifica compatibilidade antes de mostrar donos) ---
+  // --- /tem ---
   if (interaction.commandName === 'tem') {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const jogoInput = interaction.options.getString('jogo').trim();
