@@ -68,7 +68,6 @@ const WISHLIST_LINKS_FALLBACK = {
 // ============================================================
 let db = null, dbMessageId = null, videoCache = {}, videoCacheMessageId = null;
 const VIDEO_CACHE_FILENAME = 'video_cache.json';
-// 🔥 VARIÁVEL GLOBAL PARA OS LINKS DE VÍDEO (usado no fallback)
 let globalVideoLinksMap = new Map();
 
 function criarDBInicial() {
@@ -1056,7 +1055,6 @@ client.on('interactionCreate', async (interaction) => {
 
     const ITEMS_PER_PAGE = 10;
     let currentPage = 0;
-    // 🔥 USAR A VARIÁVEL GLOBAL
     globalVideoLinksMap = new Map();
 
     async function generateAchievementEmbed(ach, index) {
@@ -1110,47 +1108,67 @@ client.on('interactionCreate', async (interaction) => {
     collector.on('collect', async (i) => {
       if (!i.isRepliable()) return;
       if (i.customId.startsWith('video_')) {
-        await i.deferUpdate();
-        const data = globalVideoLinksMap.get(i.customId);
-        if (!data) return;
-        const video = await buscarVideoYouTube(data.jogo, data.conquista);
-        if (video) await i.followUp({ content: `🎬 **Vídeo guia para "${data.conquista}":**\n${video.link}`, flags: MessageFlags.Ephemeral });
+        try {
+          await i.deferUpdate();
+          const data = globalVideoLinksMap.get(i.customId);
+          if (!data) return;
+          const video = await buscarVideoYouTube(data.jogo, data.conquista);
+          if (video) {
+            await i.followUp({ content: `🎬 **Vídeo guia para "${data.conquista}":**\n${video.link}`, flags: MessageFlags.Ephemeral });
+          } else {
+            await i.followUp({ content: `❌ Nenhum vídeo encontrado para "${data.conquista}".`, flags: MessageFlags.Ephemeral });
+          }
+        } catch (error) {
+          console.error('❌ Erro no botão de vídeo:', error);
+        }
         return;
       }
       if (i.customId === 'conquista_select') {
-        await i.deferUpdate();
-        const idx = parseInt(i.values[0]);
-        const ach = conquistasList[idx];
-        if (!ach) return;
-        const { embed, buttons } = await generateAchievementEmbed(ach, idx);
-        await i.editReply({ embeds: [embed], components: [buttons] });
+        try {
+          await i.deferUpdate();
+          const idx = parseInt(i.values[0]);
+          const ach = conquistasList[idx];
+          if (!ach) return;
+          const { embed, buttons } = await generateAchievementEmbed(ach, idx);
+          await i.editReply({ embeds: [embed], components: [buttons] });
+        } catch (error) {
+          console.error('❌ Erro no select:', error);
+        }
         return;
       }
       if (i.customId === 'back_to_list_conq') {
-        await i.deferUpdate();
-        const desc = `${mensagemAcesso}\n\n${desbloq === 0 && userAch.length === 0 ?
-          `**📊 Todas as Conquistas do Jogo**\n\n🔒 **Não desbloqueadas:** ${total}/${total}\n📊 **Progresso:** 0%\n\n📌 **Legenda:** 🔒 Conquista não desbloqueada\n\nSelecione uma conquista no menu abaixo para ver os detalhes.\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.` :
-          `**📊 Suas Conquistas**\n\n✅ **Desbloqueadas:** ${desbloq}/${total}\n🔒 **Faltantes:** ${faltam}/${total}\n📊 **Progresso:** ${Math.round((desbloq/total)*100)}%\n\n📌 **Legenda:** ✅ Desbloqueada | 🔒 Não desbloqueada\n\nSelecione uma conquista no menu abaixo para ver os detalhes.\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.`}`;
-        const embed = new EmbedBuilder().setColor(0x00AE86).setTitle(`🎮 ${jogoInfo.nome}`)
-          .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
-          .setDescription(desc)
-          .setFooter({ text: `Total: ${total} conquistas • Página ${currentPage+1}/${Math.ceil(total/ITEMS_PER_PAGE)}` }).setTimestamp();
-        await i.editReply({ embeds: [embed], components: [generateSelectMenu(currentPage), generatePaginationButtons(currentPage)] });
+        try {
+          await i.deferUpdate();
+          const desc = `${mensagemAcesso}\n\n${desbloq === 0 && userAch.length === 0 ?
+            `**📊 Todas as Conquistas do Jogo**\n\n🔒 **Não desbloqueadas:** ${total}/${total}\n📊 **Progresso:** 0%\n\n📌 **Legenda:** 🔒 Conquista não desbloqueada\n\nSelecione uma conquista no menu abaixo para ver os detalhes.\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.` :
+            `**📊 Suas Conquistas**\n\n✅ **Desbloqueadas:** ${desbloq}/${total}\n🔒 **Faltantes:** ${faltam}/${total}\n📊 **Progresso:** ${Math.round((desbloq/total)*100)}%\n\n📌 **Legenda:** ✅ Desbloqueada | 🔒 Não desbloqueada\n\nSelecione uma conquista no menu abaixo para ver os detalhes.\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.`}`;
+          const embed = new EmbedBuilder().setColor(0x00AE86).setTitle(`🎮 ${jogoInfo.nome}`)
+            .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
+            .setDescription(desc)
+            .setFooter({ text: `Total: ${total} conquistas • Página ${currentPage+1}/${Math.ceil(total/ITEMS_PER_PAGE)}` }).setTimestamp();
+          await i.editReply({ embeds: [embed], components: [generateSelectMenu(currentPage), generatePaginationButtons(currentPage)] });
+        } catch (error) {
+          console.error('❌ Erro ao voltar:', error);
+        }
         return;
       }
       if (i.customId === 'prev_page_conq' || i.customId === 'next_page_conq') {
-        await i.deferUpdate();
-        const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
-        if (i.customId === 'prev_page_conq' && currentPage > 0) currentPage--;
-        if (i.customId === 'next_page_conq' && currentPage < totalPages - 1) currentPage++;
-        const desc = `${mensagemAcesso}\n\n${desbloq === 0 && userAch.length === 0 ?
-          `**📊 Todas as Conquistas do Jogo**\n\n🔒 **Não desbloqueadas:** ${total}/${total}\n📊 **Progresso:** 0%\n\n📌 **Legenda:** 🔒 Conquista não desbloqueada\n\nSelecione uma conquista no menu abaixo para ver os detalhes.\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.` :
-          `**📊 Suas Conquistas**\n\n✅ **Desbloqueadas:** ${desbloq}/${total}\n🔒 **Faltantes:** ${faltam}/${total}\n📊 **Progresso:** ${Math.round((desbloq/total)*100)}%\n\n📌 **Legenda:** ✅ Desbloqueada | 🔒 Não desbloqueada\n\nSelecione uma conquista no menu abaixo para ver os detalhes.\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.`}`;
-        const embed = new EmbedBuilder().setColor(0x00AE86).setTitle(`🎮 ${jogoInfo.nome}`)
-          .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
-          .setDescription(desc)
-          .setFooter({ text: `Total: ${total} conquistas • Página ${currentPage+1}/${Math.ceil(total/ITEMS_PER_PAGE)}` }).setTimestamp();
-        await i.editReply({ embeds: [embed], components: [generateSelectMenu(currentPage), generatePaginationButtons(currentPage)] });
+        try {
+          await i.deferUpdate();
+          const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
+          if (i.customId === 'prev_page_conq' && currentPage > 0) currentPage--;
+          if (i.customId === 'next_page_conq' && currentPage < totalPages - 1) currentPage++;
+          const desc = `${mensagemAcesso}\n\n${desbloq === 0 && userAch.length === 0 ?
+            `**📊 Todas as Conquistas do Jogo**\n\n🔒 **Não desbloqueadas:** ${total}/${total}\n📊 **Progresso:** 0%\n\n📌 **Legenda:** 🔒 Conquista não desbloqueada\n\nSelecione uma conquista no menu abaixo para ver os detalhes.\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.` :
+            `**📊 Suas Conquistas**\n\n✅ **Desbloqueadas:** ${desbloq}/${total}\n🔒 **Faltantes:** ${faltam}/${total}\n📊 **Progresso:** ${Math.round((desbloq/total)*100)}%\n\n📌 **Legenda:** ✅ Desbloqueada | 🔒 Não desbloqueada\n\nSelecione uma conquista no menu abaixo para ver os detalhes.\n\n💡 **Dica:** Clique em "🎬 Buscar vídeo guia" para encontrar um vídeo da conquista.`}`;
+          const embed = new EmbedBuilder().setColor(0x00AE86).setTitle(`🎮 ${jogoInfo.nome}`)
+            .setThumbnail(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`)
+            .setDescription(desc)
+            .setFooter({ text: `Total: ${total} conquistas • Página ${currentPage+1}/${Math.ceil(total/ITEMS_PER_PAGE)}` }).setTimestamp();
+          await i.editReply({ embeds: [embed], components: [generateSelectMenu(currentPage), generatePaginationButtons(currentPage)] });
+        } catch (error) {
+          console.error('❌ Erro na paginação:', error);
+        }
         return;
       }
     });
@@ -1159,22 +1177,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 15. FALLBACK PARA BOTÕES DE VÍDEO (CASO O COLLECTOR FALHE)
-// ============================================================
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isButton()) return;
-  if (interaction.customId.startsWith('video_')) {
-    if (!interaction.isRepliable()) return;
-    const data = globalVideoLinksMap?.get(interaction.customId);
-    if (!data) { try { await interaction.deferUpdate(); } catch (_) {} return; }
-    await interaction.deferUpdate();
-    const video = await buscarVideoYouTube(data.jogo, data.conquista);
-    if (video) await interaction.followUp({ content: `🎬 **Vídeo guia para "${data.conquista}":**\n${video.link}`, flags: MessageFlags.Ephemeral });
-  }
-});
-
-// ============================================================
-// 16. COMANDOS DE TEXTO (DONO)
+// 15. COMANDOS DE TEXTO (DONO)
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
@@ -1199,7 +1202,7 @@ client.on('messageCreate', async (message) => {
 });
 
 // ============================================================
-// 17. HEALTH CHECK E LOGIN
+// 16. HEALTH CHECK E LOGIN
 // ============================================================
 if (process.env.PORT) {
   try {
