@@ -1,5 +1,6 @@
 // Requisitos: node 18+ (fetch builtin) ou instalar node-fetch.
 // Defina YT_API_KEY no Railway (Google API key com YouTube Data API v3 ativada).
+// Para a solução definitiva, defina REDIS_URL no Railway (opcional, recomendado).
 // Opcional: defina DB_CHANNEL_ID como variável de ambiente ou altere a constante abaixo.
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
@@ -11,6 +12,19 @@ if (!fetchFn) {
     fetchFn = require('node-fetch');
   } catch (err) {
     // deixamos fetchFn null — lançaremos erro se usado sem fetch
+  }
+}
+
+// Redis (opcional) — se REDIS_URL estiver setado e a lib estiver instalada, usamos Redis para dedupe atômico
+let redisClient = null;
+if (process.env.REDIS_URL) {
+  try {
+    const IORedis = require('ioredis');
+    redisClient = new IORedis(process.env.REDIS_URL);
+    redisClient.on('error', (e) => console.error('Redis error:', e));
+  } catch (err) {
+    console.warn('REDIS_URL set but ioredis not installed. Install ioredis to enable atomic dedupe with Redis. Falling back to channel-based DB.');
+    redisClient = null;
   }
 }
 
@@ -65,6 +79,7 @@ function uniqueById(items) {
 
 // Canal que servirá como "banco de dados" de vídeos salvos. Pode ser alterado para process.env.DB_CHANNEL_ID
 const DB_CHANNEL_ID = process.env.DB_CHANNEL_ID || '1525926566373363823';
+const REDIS_SET_KEY = 'familia:videos';
 
 /**
  * Faz busca no YouTube: prioriza vídeos curtos (videoDuration=short).
@@ -149,9 +164,22 @@ async function searchTrophyVideos(game, trophyName, maxResults = 5) {
 /**
  * Busca no canal DB_CHANNEL_ID por mensagens e extrai IDs de vídeos já salvos.
  * Paginação até maxMessages (padrão 1000). Retorna um Set de video IDs.
+ * Se Redis estiver disponível, preferimos carregar do Redis para velocidade/atômico.
  */
 async function fetchSavedVideoIds(client, maxMessages = 1000) {
   const saved = new Set();
+  try {
+    if (redisClient) {
+      // carregar todos os membros do set Redis
+      const members = await redisClient.smembers(REDIS_SET_KEY);
+      for (const m of members) saved.add(m);
+      return saved;
+    }
+  } catch (err) {
+    console.error('Erro ao carregar IDs do Redis, caindo para leitura do canal:', err);
+    // continuar para leitura do canal
+  }
+
   if (!client) return saved;
   try {
     const channel = await client.channels.fetch(DB_CHANNEL_ID).catch(() => null);
@@ -199,8 +227,8 @@ async function fetchSavedVideoIds(client, maxMessages = 1000) {
 
 /**
  * Salva (envia) no canal DB_CHANNEL_ID apenas os vídeos que ainda não constam lá.
- * Retorna quantidade de novos salvos. Atualiza existingSet conforme salva para evitar condições de corrida.
- * Agora faz um re-check de mensagens recentes antes de enviar cada chunk para evitar duplicatas por race.
+ * Retorna quantidade de novos salvos. Se Redis estiver disponível, usamos SADD atômico e não enviamos ao canal se já existir.
+ * Se Redis não estiver disponível, usamos o re-check por mensagens no canal e atualizamos existingSet conforme salva.
  */
 async function saveNewVideosToChannel(client, videos, existingSet) {
   if (!client) return 0;
@@ -208,16 +236,38 @@ async function saveNewVideosToChannel(client, videos, existingSet) {
     const channel = await client.channels.fetch(DB_CHANNEL_ID).catch(() => null);
     if (!channel || !channel.isText()) return 0;
 
+    // Se Redis disponível, usamos operação atômica SADD para cada vídeo antes de postar
+    if (redisClient) {
+      let savedCount = 0;
+      for (const v of videos) {
+        try {
+          const added = await redisClient.sadd(REDIS_SET_KEY, v.id); // 1 if added, 0 if already existed
+          if (added === 1) {
+            // ainda assim, salvamos a referência no canal para histórico (opcional)
+            await channel.send({ content: `🔖 ${v.title} — ${v.channelTitle}\n${v.url}\nID: ${v.id}` });
+            savedCount++;
+          } else {
+            // já existia, pular
+          }
+        } catch (err) {
+          console.error('Erro SADD redis:', err);
+          // fallback: adicionar ao existingSet para evitar repostar neste loop
+          existingSet.add(v.id);
+        }
+      }
+      return savedCount;
+    }
+
+    // Sem Redis: comportamento anterior com re-check antes de cada chunk
     const toSave = videos.filter(v => !existingSet.has(v.id));
     if (toSave.length === 0) return 0;
 
-    // Enviar em blocos para evitar limite de tamanho; mas atualizamos existingSet conforme enviamos
     const chunkSize = 10;
     let savedCount = 0;
     for (let i = 0; i < toSave.length; i += chunkSize) {
-      // Antes de enviar, re-check nas mensagens mais recentes para detectar se outro processo já salvou algum vídeo
+      // re-check
       try {
-        const recent = await channel.messages.fetch({ limit: 200 });
+        const recent = await channel.messages.fetch({ limit: 500 });
         for (const msg of recent.values()) {
           if (msg.content) {
             const id = extractYouTubeId(msg.content);
@@ -241,21 +291,17 @@ async function saveNewVideosToChannel(client, videos, existingSet) {
           }
         }
       } catch (err) {
-        // se falhar, continuamos com o envio baseado no existingSet que temos
         console.error('Re-check failed before sending chunk:', err);
       }
 
-      // recompute chunk after re-check to remove already-saved videos
       const chunk = toSave.slice(i, i + chunkSize).filter(v => !existingSet.has(v.id));
-      if (chunk.length === 0) continue; // nada novo para enviar neste bloco
+      if (chunk.length === 0) continue;
 
       const lines = chunk.map(v => `🔖 ${v.title} — ${v.channelTitle}\n${v.url}\nID: ${v.id}`);
       await channel.send({ content: `Novos vídeos salvos:\n\n${lines.join('\n\n')}` });
-      // Atualizar existingSet imediatamente
       for (const v of chunk) existingSet.add(v.id);
       savedCount += chunk.length;
     }
-
     return savedCount;
   } catch (err) {
     console.error('Erro ao salvar vídeos no canal DB:', err);
@@ -284,8 +330,8 @@ module.exports = {
         return interaction.editReply(`Não consegui encontrar vídeos para: **${game} — ${name}**.`);
       }
 
-      // 2) Buscar IDs já salvos no canal DB (paginar até 1000 mensagens)
-      const savedSet = await fetchSavedVideoIds(interaction.client, 1000);
+      // 2) Buscar IDs já salvos (prefere Redis se disponível)
+      const savedSet = await fetchSavedVideoIds(interaction.client, 2000);
 
       // 3) Filtrar candidatos para remover vídeos já salvos
       let uniqueCandidates = candidates.filter(v => !savedSet.has(v.id));
@@ -303,7 +349,7 @@ module.exports = {
         return interaction.editReply(`Todos os vídeos encontrados para **${game} — ${name}** já estão salvos no canal de controle.`);
       }
 
-      // 4) Salvar os novos vídeos selecionados no canal DB (apenas os que ainda não estão lá). Atualiza savedSet internamente.
+      // 4) Salvar os novos vídeos selecionados (usando Redis atomically if available)
       await saveNewVideosToChannel(interaction.client, finalResults, savedSet).catch(() => {});
 
       // 5) Responder ao usuário com os resultados finais
