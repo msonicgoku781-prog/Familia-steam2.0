@@ -8,6 +8,9 @@ console.log(`📅 ${new Date().toLocaleString()}`);
 console.log(`🆔 Node.js: ${process.version}`);
 console.log('========================================');
 
+// 🔥 SUPRIME AVISOS EXPERIMENTAIS (buffer.File, etc.)
+process.env.NODE_NO_WARNINGS = '1';
+
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
