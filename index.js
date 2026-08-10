@@ -499,7 +499,7 @@ async function saveWishlistLink(discordId, link) {
 console.log('🚀 [7] Funções /quero e wishlist carregadas.');
 
 // ============================================================
-// 6. FUNÇÕES DA STEAM API (mantido)
+// 6. FUNÇÕES DA STEAM API
 // ============================================================
 let ultimaRequisicao = 0;
 const MIN_INTERVALO = 1500;
@@ -1883,7 +1883,65 @@ async function carregarMapeamentoDoCanal(channel) {
 }
 
 // ============================================================
-// 19. EVENTO clientReady
+// 19. AUTOCOMPLETE PARA /conquista (COM SUGESTÕES INICIAIS)
+// ============================================================
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isAutocomplete()) return;
+  if (interaction.commandName !== 'conquista') return;
+
+  try {
+    const focusedValue = interaction.options.getFocused();
+    const userId = interaction.user.id;
+
+    // Encontrar o SteamId do usuário
+    let steamId = null;
+    for (const [sid, member] of Object.entries(MEMBROS)) {
+      if (member.discordId === userId) {
+        steamId = sid;
+        break;
+      }
+    }
+
+    if (!steamId) {
+      await interaction.respond([]);
+      return;
+    }
+
+    // Buscar jogos recentes (limite 8 para sugestões)
+    const recentGames = await getRecentlyPlayedGames(steamId, 8);
+    if (!recentGames || recentGames.length === 0) {
+      await interaction.respond([]);
+      return;
+    }
+
+    // Se o campo estiver vazio, mostra os 8 jogos recentes
+    if (!focusedValue || focusedValue.trim() === '') {
+      const suggestions = recentGames.map(game => ({
+        name: game.name,
+        value: game.name
+      }));
+      await interaction.respond(suggestions.slice(0, 25));
+      return;
+    }
+
+    // Caso contrário, filtra pelo que foi digitado
+    const lowerFocused = focusedValue.toLowerCase();
+    const suggestions = recentGames
+      .filter(game => game.name && game.name.toLowerCase().includes(lowerFocused))
+      .map(game => ({
+        name: game.name,
+        value: game.name
+      }));
+
+    await interaction.respond(suggestions.slice(0, 25));
+  } catch (error) {
+    console.error('❌ Erro no autocomplete do /conquista:', error);
+    await interaction.respond([]).catch(() => {});
+  }
+});
+
+// ============================================================
+// 20. EVENTO clientReady
 // ============================================================
 let botIniciado = false;
 const flagFile = path.join(__dirname, 'bot_started.flag');
@@ -1934,7 +1992,15 @@ client.once('clientReady', async () => {
         {
           name: 'conquista',
           description: 'Mostra todas as conquistas de um jogo com vídeos guia',
-          options: [{ name: 'jogo', description: 'Nome do jogo para buscar conquistas', type: 3, required: true }]
+          options: [
+            {
+              name: 'jogo',
+              description: 'Nome do jogo para buscar conquistas',
+              type: 3,
+              required: true,
+              autocomplete: true
+            }
+          ]
         }
       ];
       const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
@@ -1998,7 +2064,7 @@ client.once('clientReady', async () => {
 });
 
 // ============================================================
-// 20. COMANDO /dbstatus
+// 21. COMANDO /dbstatus
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2053,7 +2119,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 21. COMANDO /wishlist-link
+// 22. COMANDO /wishlist-link
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2085,7 +2151,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 22. COMANDO /quero
+// 23. COMANDO /quero
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2247,7 +2313,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 23. COMANDO /quero-listar
+// 24. COMANDO /quero-listar
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2316,7 +2382,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 24. COMANDO /quero-remover
+// 25. COMANDO /quero-remover
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2381,7 +2447,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 25. COMANDO /tem
+// 26. COMANDO /tem
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2457,7 +2523,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 26. COMANDO /conquista (CORRIGIDO - SEM BLOQUEIO DE COMPATIBILIDADE)
+// 27. COMANDO /conquista (COMPLETO E OTIMIZADO)
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2943,7 +3009,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 27. FALLBACK PARA BOTÕES
+// 28. FALLBACK PARA BOTÕES
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
@@ -2985,7 +3051,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 28. OUTROS COMANDOS
+// 29. OUTROS COMANDOS
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
@@ -3039,7 +3105,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 29. HEALTH CHECK PARA RAILWAY
+// 30. HEALTH CHECK PARA RAILWAY
 // ============================================================
 if (process.env.PORT) {
   try {
@@ -3061,7 +3127,7 @@ if (process.env.PORT) {
 }
 
 // ============================================================
-// 30. LOGIN
+// 31. LOGIN
 // ============================================================
 console.log('🔑 Tentando login...');
 client.login(DISCORD_TOKEN)
