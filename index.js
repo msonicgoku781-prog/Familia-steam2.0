@@ -1850,66 +1850,13 @@ client.on('reconnecting', () => {
 });
 
 // ============================================================
-// 18. CARREGAR MAPEAMENTO DE CONQUISTAS (MEGA MAN X)
-// ============================================================
-let conquestMappings = null;
-let conquestMappingsLoaded = false;
-const videoLinksMap = new Map();
-
-async function carregarMapeamentoConquistas() {
-  if (conquestMappingsLoaded && conquestMappings) {
-    return conquestMappings;
-  }
-
-  const channelId = '1525926566373363823';
-  const channel = client.channels.cache.get(channelId);
-  if (!channel) {
-    console.error('❌ Canal #lista-quero não encontrado!');
-    try {
-      const fetched = await client.channels.fetch(channelId);
-      if (fetched) {
-        return await carregarMapeamentoDoCanal(fetched);
-      }
-    } catch (e) {
-      console.error('❌ Falha ao buscar canal:', e.message);
-    }
-    return null;
-  }
-  return await carregarMapeamentoDoCanal(channel);
-}
-
-async function carregarMapeamentoDoCanal(channel) {
-  try {
-    const messages = await channel.messages.fetch({ limit: 50 });
-    const msg = messages.find(m => 
-      m.attachments.size > 0 && 
-      m.attachments.some(a => a.name === 'megaman_x_achievements.json')
-    );
-    if (!msg) {
-      console.warn('⚠️ Nenhuma mensagem com o arquivo megaman_x_achievements.json encontrada.');
-      return null;
-    }
-
-    const attachment = msg.attachments.find(a => a.name === 'megaman_x_achievements.json');
-    const response = await axios.get(attachment.url, { responseType: 'json' });
-    conquestMappings = response.data;
-    conquestMappingsLoaded = true;
-    console.log(`✅ Mapeamento carregado: ${Object.keys(response.data).length} conquistas`);
-    return response.data;
-  } catch (e) {
-    console.error('❌ Erro ao carregar mapeamento:', e.message);
-    return null;
-  }
-}
-
-// ============================================================
-// 19. EVENTO clientReady (COM LOG ADICIONAL)
+// 18. EVENTO clientReady (SEM CARREGAMENTO DE MEGA MAN X)
 // ============================================================
 let botIniciado = false;
 const flagFile = path.join(__dirname, 'bot_started.flag');
 
 client.once('clientReady', async () => {
-  console.log('✅ clientReady DISPARADO!'); // <-- LOG ADICIONAL
+  console.log('✅ clientReady DISPARADO!');
   console.log(`✅ Bot online como ${client.user.tag}`);
   console.log(`📋 Banco de dados armazenado como anexo no canal: <#${QUERO_CHANNEL}>`);
   console.log(`📢 ACHIEVEMENT_CHANNEL_ID configurado: ${ACHIEVEMENT_CHANNEL_ID || 'NÃO DEFINIDO'}`);
@@ -1937,8 +1884,6 @@ client.once('clientReady', async () => {
       await salvarDBNoCanal();
       await enviarRanking();
     }
-
-    conquestMappings = await carregarMapeamentoConquistas();
 
     console.log('🔄 Registrando comandos...');
     try {
@@ -2018,7 +1963,7 @@ client.once('clientReady', async () => {
 });
 
 // ============================================================
-// 20. COMANDO /dbstatus
+// 19. COMANDO /dbstatus
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2073,7 +2018,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 21. COMANDO /wishlist-link
+// 20. COMANDO /wishlist-link
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2105,7 +2050,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 22. COMANDO /quero
+// 21. COMANDO /quero
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2267,7 +2212,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 23. COMANDO /quero-listar
+// 22. COMANDO /quero-listar
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2336,7 +2281,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 24. COMANDO /quero-remover
+// 23. COMANDO /quero-remover
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2401,7 +2346,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 25. COMANDO /tem
+// 24. COMANDO /tem
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2477,7 +2422,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 26. COMANDO /conquista (COMPLETO E OTIMIZADO)
+// 25. COMANDO /conquista (UNIFORME - SEM EXCEÇÃO PARA MEGA MAN X)
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2558,58 +2503,34 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      const isMegaManX = (appid === 743890);
-      let conquistasSchema = [];
+      // 🔥 AQUI REMOVEMOS A LÓGICA ESPECIAL PARA MEGA MAN X
+      // Agora todos os jogos usam a API padrão da Steam
+      console.log(`🎮 Buscando schema da Steam para o jogo ${appid}...`);
+      let schemaData;
+      try {
+        const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
+        const params = { key: STEAM_KEY, appid: appid, l: 'portuguese' };
+        schemaData = await fetchSteam(url, params, 2);
+      } catch (e) {
+        await interaction.editReply(`❌ Erro ao buscar conquistas do jogo.`);
+        return;
+      }
+
+      if (!schemaData?.game?.availableGameStats?.achievements) {
+        await interaction.editReply(`❌ O jogo **${jogoInfo.nome}** não possui conquistas.`);
+        return;
+      }
+
+      const conquistasSchema = schemaData.game.availableGameStats.achievements;
+
       let conquistasUsuario = [];
-
-      if (isMegaManX && conquestMappings) {
-        console.log(`🎮 Mega Man X detectado! Usando JSON.`);
-        try {
-          const playerAch = await getPlayerAchievements(userSteamId, appid);
-          if (playerAch && Array.isArray(playerAch)) {
-            conquistasUsuario = playerAch.filter(c => c.achieved === 1).map(c => c.apiname);
-          }
-        } catch (e) {
-          conquistasUsuario = [];
+      try {
+        const playerAch = await getPlayerAchievements(userSteamId, appid);
+        if (playerAch && Array.isArray(playerAch)) {
+          conquistasUsuario = playerAch.filter(c => c.achieved === 1).map(c => c.apiname);
         }
-
-        conquistasSchema = Object.keys(conquestMappings).map(nome => {
-          const data = conquestMappings[nome];
-          return {
-            name: nome,
-            displayName: data.displayName || nome,
-            description: data.description || 'Sem descrição disponível',
-            icon: data.image || null,
-            icongray: data.image || null
-          };
-        });
-      } else {
-        console.log(`🎮 Buscando schema da Steam...`);
-        let schemaData;
-        try {
-          const url = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/`;
-          const params = { key: STEAM_KEY, appid: appid, l: 'portuguese' };
-          schemaData = await fetchSteam(url, params, 2);
-        } catch (e) {
-          await interaction.editReply(`❌ Erro ao buscar conquistas do jogo.`);
-          return;
-        }
-
-        if (!schemaData?.game?.availableGameStats?.achievements) {
-          await interaction.editReply(`❌ O jogo **${jogoInfo.nome}** não possui conquistas.`);
-          return;
-        }
-
-        conquistasSchema = schemaData.game.availableGameStats.achievements;
-
-        try {
-          const playerAch = await getPlayerAchievements(userSteamId, appid);
-          if (playerAch && Array.isArray(playerAch)) {
-            conquistasUsuario = playerAch.filter(c => c.achieved === 1).map(c => c.apiname);
-          }
-        } catch (e) {
-          conquistasUsuario = [];
-        }
+      } catch (e) {
+        conquistasUsuario = [];
       }
 
       let conquistasList = conquistasSchema.map(ach => {
@@ -2965,7 +2886,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 27. FALLBACK PARA BOTÕES
+// 26. FALLBACK PARA BOTÕES
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
@@ -3007,7 +2928,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 28. OUTROS COMANDOS
+// 27. OUTROS COMANDOS
 // ============================================================
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.author.id !== DONO_ID) return;
@@ -3061,7 +2982,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 29. HEALTH CHECK PARA RAILWAY
+// 28. HEALTH CHECK PARA RAILWAY
 // ============================================================
 if (process.env.PORT) {
   try {
@@ -3083,7 +3004,7 @@ if (process.env.PORT) {
 }
 
 // ============================================================
-// 30. LOGIN
+// 29. LOGIN
 // ============================================================
 console.log('🔑 Tentando login...');
 client.login(DISCORD_TOKEN)
