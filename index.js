@@ -765,7 +765,6 @@ async function getPlayerAchievementsWithPercent(steamId, appId) {
     }));
     return { achievements, gameName: playerData.playerstats.gameName || `Jogo ${appId}` };
   } catch (error) {
-    // Suprime erros 400 e 403 silenciosamente
     if (error.response && (error.response.status === 400 || error.response.status === 403)) {
       return null;
     }
@@ -945,7 +944,7 @@ async function enviarRegras() {
 }
 
 // ============================================================
-// 10. VERIFICAÇÃO DE CONQUISTAS (SILENCIA 400/403)
+// 10. VERIFICAÇÃO DE CONQUISTAS
 // ============================================================
 async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
   if (!gamesToCheck?.length) return;
@@ -993,9 +992,8 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
     try {
       conquistasData = await getPlayerAchievementsWithPercent(steamId, appid);
     } catch (e) {
-      // Já tratado silenciosamente na função, mas por segurança:
       if (e.response && (e.response.status === 400 || e.response.status === 403)) {
-        // Silencia
+        // silencioso
       } else {
         console.log(`   ⚠️ Erro ao buscar conquistas: ${e.message}`);
       }
@@ -1003,8 +1001,6 @@ async function verificarConquistas(steamId, gamesToCheck, mention, userName) {
     }
 
     if (!conquistasData?.achievements || conquistasData.achievements.length === 0) {
-      // Não loga mais "não possui conquistas" para esses jogos
-      // console.log(`   ℹ️ ${gameName} não possui conquistas.`);
       if (!db.jogosSemConquistas) db.jogosSemConquistas = {};
       db.jogosSemConquistas[appid] = { nome: gameName, data: new Date().toISOString(), motivo: 'sem_conquistas' };
       await salvarDBNoCanal();
@@ -2049,7 +2045,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 27. COMANDO /tem
+// 27. COMANDO /tem (CORRIGIDO COM FILTRO DE COMPATIBILIDADE)
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -2086,7 +2082,13 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
       if (encontrado) {
-        await interaction.editReply(`✅ **${nome}** está na biblioteca da família!\n👥 Dono(s): ${donos.join(', ')}\n🔗 ${link}`);
+        // Verifica compatibilidade
+        const compat = await verificarCompatibilidadeFamilia(appid);
+        let mensagem = `✅ **${nome}** está na biblioteca da família!\n👥 Dono(s): ${donos.join(', ')}\n🔗 ${link}`;
+        if (!compat.compatível) {
+          mensagem = `⚠️ **${nome}** está na biblioteca, mas **NÃO é compatível com Family Sharing**!\nMotivo: ${compat.motivo}\n👥 Dono(s): ${donos.join(', ')}\n🔗 ${link}`;
+        }
+        await interaction.editReply({ content: mensagem });
       } else {
         await interaction.editReply(`❌ **${nome}** NÃO está na biblioteca da família.`);
       }
