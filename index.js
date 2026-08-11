@@ -480,7 +480,7 @@ async function enviarRegras() {
   if (!channel) return;
   const embed = new EmbedBuilder().setColor(0x00AE86).setTitle('📜 REGRAS DO SERVIDOR').setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png')
     .setDescription(
-      '**Bem-vindo à Família Steam!** 🎮\n\n**📌 REGRAS GERAIS**\n1️⃣ **Respeito acima de tudo** – Nada de ofensas, discurso de ódio ou assédio.\n2️⃣ **Sem spam ou flood** – Evite enviar mensagens repetitivas ou conteúdo irrelevante.\n3️⃣ **Conteúdo apropriado** – Nada de NSFW, gore ou material impróprio.\n4️⃣ **Divulgação proibida** – Não divulgue outros servidores, produtos ou serviços sem permissão.\n5️⃣ **Use os canais certos** – Cada canal tem um propósito. Respeite as categorias.\n6️⃣ **Seja ativo e participe** – A família cresce com a interação de todos!\n\n**🤖 COMANDOS DISPONÍVEIS**\n`/tem [jogo]` – Verifica se um jogo está na biblioteca da família.\n`/ranking` – Mostra o ranking de jogos da família.\n`/quero [jogo]` – Adiciona um jogo à sua lista de desejos.\n`/quero-listar` – Lista os jogos da sua lista /quero.\n`/quero-remover [jogo]` – Remove um jogo da sua lista /quero.\n`/wishlist-link` – Registra o link da sua wishlist para receber notificações.\n`/dbstatus` – Status do banco de dados (apenas dono).\n`/regras` – Exibe esta mensagem novamente.\n`/conquista jogo:"nome"` – Mostra todas as conquistas de um jogo com vídeos guia.\n`/jogar [jogo]` – Mostra a capa do jogo e um botão para abrir na Steam.\n\n**🔔 NOTIFICAÇÕES**\n• 🆕 Novos jogos compatíveis são anunciados com `@everyone`.\n• 🏆 Conquistas são monitoradas e notificadas no canal de conquistas.\n• 📢 Lançamentos e promoções de jogos da sua lista `/quero` são enviados por DM.\n• 🎯 Quando alguém comprar um jogo da sua **wishlist da Steam**, você recebe uma DM!\n\n**📌 CANAIS IMPORTANTES**\n• 📢 **Notificações:** <#${CHANNEL_ID}>\n• 🏆 **Conquistas:** <#${ACHIEVEMENT_CHANNEL_ID}>\n• 📋 **Ranking:** <#${RANKING_CHANNEL_ID}>\n• 📜 **Regras:** <#${RULES_CHANNEL}>\n\n**✅ REGRAS SUJEITAS A MUDANÇAS** – A administração pode atualizar as regras a qualquer momento.\n**Divirta-se e bem-vindo à família!** 🚀'
+      '**Bem-vindo à Família Steam!** 🎮\n\n**📌 REGRAS GERAIS**\n1️⃣ **Respeito acima de tudo** – Nada de ofensas, discurso de ódio ou assédio.\n2️⃣ **Sem spam ou flood** – Evite enviar mensagens repetitivas ou conteúdo irrelevante.\n3️⃣ **Conteúdo apropriado** – Nada de NSFW, gore ou material impróprio.\n4️⃣ **Divulgação proibida** – Não divulgue outros servidores, produtos ou serviços sem permissão.\n5️⃣ **Use os canais certos** – Cada canal tem um propósito. Respeite as categorias.\n6️⃣ **Seja ativo e participe** – A família cresce com a interação de todos!\n\n**🤖 COMANDOS DISPONÍVEIS**\n`/tem [jogo]` – Verifica se um jogo está na biblioteca da família.\n`/ranking` – Mostra o ranking de jogos da família.\n`/quero [jogo]` – Adiciona um jogo à sua lista de desejos.\n`/quero-listar` – Lista os jogos da sua lista /quero.\n`/quero-remover [jogo]` – Remove um jogo da sua lista /quero.\n`/wishlist-link` – Registra o link da sua wishlist para receber notificações.\n`/dbstatus` – Status do banco de dados (apenas dono).\n`/regras` – Exibe esta mensagem novamente.\n`/conquista jogo:"nome"` – Mostra todas as conquistas de um jogo com vídeos guia.\n\n**🔔 NOTIFICAÇÕES**\n• 🆕 Novos jogos compatíveis são anunciados com `@everyone`.\n• 🏆 Conquistas são monitoradas e notificadas no canal de conquistas.\n• 📢 Lançamentos e promoções de jogos da sua lista `/quero` são enviados por DM.\n• 🎯 Quando alguém comprar um jogo da sua **wishlist da Steam**, você recebe uma DM!\n\n**📌 CANAIS IMPORTANTES**\n• 📢 **Notificações:** <#${CHANNEL_ID}>\n• 🏆 **Conquistas:** <#${ACHIEVEMENT_CHANNEL_ID}>\n• 📋 **Ranking:** <#${RANKING_CHANNEL_ID}>\n• 📜 **Regras:** <#${RULES_CHANNEL}>\n\n**✅ REGRAS SUJEITAS A MUDANÇAS** – A administração pode atualizar as regras a qualquer momento.\n**Divirta-se e bem-vindo à família!** 🚀'
     ).setTimestamp().setFooter({ text: 'Steam Família - Regras e Comandos', iconURL: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png' });
   await channel.send({ embeds: [embed] });
 }
@@ -836,8 +836,7 @@ client.once('clientReady', async () => {
       { name: 'wishlist-link', description: 'Registra o link da sua wishlist para receber notificações', options: [{ name: 'link', description: 'Link da sua wishlist', type: 3, required: true }] },
       { name: 'dbstatus', description: '[DONO] Status do banco de dados' },
       { name: 'regras', description: 'Mostra as regras e comandos do servidor' },
-      { name: 'conquista', description: 'Mostra todas as conquistas de um jogo com vídeos guia', options: [{ name: 'jogo', description: 'Nome do jogo para buscar conquistas', type: 3, required: true }] },
-      { name: 'jogar', description: 'Mostra a capa do jogo e um botão para abrir na Steam', options: [{ name: 'jogo', description: 'Nome do jogo que você quer abrir', type: 3, required: true }] }
+      { name: 'conquista', description: 'Mostra todas as conquistas de um jogo com vídeos guia', options: [{ name: 'jogo', description: 'Nome do jogo para buscar conquistas', type: 3, required: true }] }
     ];
     const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
@@ -1177,96 +1176,6 @@ client.on('interactionCreate', async (interaction) => {
       }
     });
     collector.on('end', async () => { try { await reply.edit({ components: [] }); } catch (_) {} });
-  }
-
-  // ============================================================
-  // 🔥 COMANDO /jogar (VERSÃO FINAL - LINK CLICÁVEL DIRETO)
-  // ============================================================
-  if (interaction.commandName === 'jogar') {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const nomeJogo = interaction.options.getString('jogo').trim();
-
-    let jogoInfo = await searchGameOnSteam(nomeJogo);
-    if (!jogoInfo) {
-      const match = nomeJogo.match(/^\d+$/);
-      if (match) {
-        const d = await getGameDetails(parseInt(match[0]));
-        if (d) {
-          jogoInfo = {
-            appid: parseInt(match[0]),
-            nome: d.name,
-            capa: d.header_image || `https://cdn.cloudflare.steamstatic.com/steam/apps/${match[0]}/header.jpg`
-          };
-        }
-      }
-    }
-
-    if (!jogoInfo) {
-      await interaction.editReply(`❌ Não encontrei o jogo **${nomeJogo}** na Steam.`);
-      return;
-    }
-
-    const appid = jogoInfo.appid;
-    const nome = jogoInfo.nome;
-    const capa = jogoInfo.capa || `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
-
-    // Embed com a capa
-    const embed = new EmbedBuilder()
-      .setColor(0x00AE86)
-      .setTitle(`🎮 ${nome}`)
-      .setDescription(`Clique no botão abaixo para abrir o jogo na Steam.`)
-      .setImage(capa)
-      .setFooter({ text: 'Steam Família - /jogar', iconURL: client.user.displayAvatarURL() })
-      .setTimestamp();
-
-    // Botão de ação (não Link)
-    const button = new ActionRowBuilder()
-      .addComponents(
-        new ButtonBuilder()
-          .setCustomId(`jogar_${appid}`)
-          .setLabel(`▶️ Abrir ${nome}`)
-          .setStyle(ButtonStyle.Primary)
-      );
-
-    const reply = await interaction.editReply({ embeds: [embed], components: [button] });
-
-    // Coletor para o botão
-    const filter = i => i.user.id === interaction.user.id && i.customId === `jogar_${appid}`;
-    const collector = reply.createMessageComponentCollector({ filter, time: 60000 });
-
-    collector.on('collect', async (i) => {
-      try {
-        await i.deferUpdate();
-        // 🔥 EDITA A MENSAGEM ORIGINAL, SUBSTITUINDO PELO LINK CLICÁVEL
-        const linkEmbed = new EmbedBuilder()
-          .setColor(0x00AE86)
-          .setTitle(`🎮 ${nome}`)
-          .setDescription(`Clique no link abaixo para abrir **${nome}** na Steam:\n\n[▶️ Abrir ${nome} na Steam](steam://launch/${appid}/Dialog)`)
-          .setImage(capa)
-          .setFooter({ text: 'Steam Família - /jogar', iconURL: client.user.displayAvatarURL() })
-          .setTimestamp();
-
-        // Remove o botão e substitui o embed
-        await i.editReply({ embeds: [linkEmbed], components: [] });
-      } catch (error) {
-        console.error('❌ Erro ao processar botão /jogar:', error);
-      }
-    });
-
-    collector.on('end', async () => {
-      try {
-        // Se o tempo acabar, desabilita o botão (opcional)
-        const disabledButton = new ActionRowBuilder()
-          .addComponents(
-            new ButtonBuilder()
-              .setCustomId(`jogar_${appid}`)
-              .setLabel(`▶️ Abrir ${nome}`)
-              .setStyle(ButtonStyle.Primary)
-              .setDisabled(true)
-          );
-        await reply.edit({ components: [disabledButton] }).catch(() => {});
-      } catch (_) {}
-    });
   }
 });
 
