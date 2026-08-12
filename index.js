@@ -88,7 +88,8 @@ function criarDBInicial() {
     jogosSemConquistas: {},
     rankingVersion: RANKING_VERSION,
     ultimaVerificacao: {},
-    jogosAnunciados: []
+    jogosAnunciados: [],
+    regrasEnviadas: false
   };
 }
 
@@ -143,6 +144,7 @@ async function inicializarDB() {
     for (const k of ['ranking', 'conquistas', 'historicoJogos', 'lancamentosNotificados', 'jogosSemConquistas', 'ultimaVerificacao'])
       if (!db[k]) db[k] = {};
     if (!db.jogosAnunciados) db.jogosAnunciados = [];
+    if (!db.regrasEnviadas) db.regrasEnviadas = false;
     if (!db.ultimaMensagemRankingId) db.ultimaMensagemRankingId = null;
     if (!db.rankingVersion) db.rankingVersion = 0;
     if (db.rankingVersion < RANKING_VERSION) {
@@ -450,7 +452,7 @@ async function verificarCompatibilidadeFamilia(appId) {
 }
 
 // ============================================================
-// 8. RANKING E REGRAS
+// 8. RANKING E REGRAS (COM IMAGEM)
 // ============================================================
 function gerarRankingEmbed() {
   const rankingArray = Object.values(db.ranking || {}).sort((a, b) => b.jogos - a.jogos);
@@ -475,13 +477,50 @@ async function enviarRanking() {
   db.ultimaMensagemRankingId = nova.id;
   await salvarDBNoCanal();
 }
+
+// 🔥 FUNÇÃO DE REGRAS COM IMAGEM
 async function enviarRegras() {
   const channel = client.channels.cache.get(RULES_CHANNEL);
   if (!channel) return;
-  const embed = new EmbedBuilder().setColor(0x00AE86).setTitle('📜 REGRAS DO SERVIDOR').setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png')
+  const embed = new EmbedBuilder()
+    .setColor(0x00AE86)
+    .setImage('https://cdn.discordapp.com/attachments/1015679704197509171/1537013046436962455/image.png?ex=6a7d7e72&is=6a7c2cf2&hm=f1c1c80c0f2f6aa0d18592b7bf86616a42e61ef0c758eeb2daafdd67b7343f8f&')
+    .setTitle('📜 REGRAS DO SERVIDOR')
+    .setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png')
     .setDescription(
-      '**Bem-vindo à Família Steam!** 🎮\n\n**📌 REGRAS GERAIS**\n1️⃣ **Respeito acima de tudo** – Nada de ofensas, discurso de ódio ou assédio.\n2️⃣ **Sem spam ou flood** – Evite enviar mensagens repetitivas ou conteúdo irrelevante.\n3️⃣ **Conteúdo apropriado** – Nada de NSFW, gore ou material impróprio.\n4️⃣ **Divulgação proibida** – Não divulgue outros servidores, produtos ou serviços sem permissão.\n5️⃣ **Use os canais certos** – Cada canal tem um propósito. Respeite as categorias.\n6️⃣ **Seja ativo e participe** – A família cresce com a interação de todos!\n\n**🤖 COMANDOS DISPONÍVEIS**\n`/tem [jogo]` – Verifica se um jogo está na biblioteca da família.\n`/ranking` – Mostra o ranking de jogos da família.\n`/quero [jogo]` – Adiciona um jogo à sua lista de desejos.\n`/quero-listar` – Lista os jogos da sua lista /quero.\n`/quero-remover [jogo]` – Remove um jogo da sua lista /quero.\n`/wishlist-link` – Registra o link da sua wishlist para receber notificações.\n`/dbstatus` – Status do banco de dados (apenas dono).\n`/regras` – Exibe esta mensagem novamente.\n`/conquista jogo:"nome"` – Mostra todas as conquistas de um jogo com vídeos guia.\n\n**🔔 NOTIFICAÇÕES**\n• 🆕 Novos jogos compatíveis são anunciados com `@everyone`.\n• 🏆 Conquistas são monitoradas e notificadas no canal de conquistas.\n• 📢 Lançamentos e promoções de jogos da sua lista `/quero` são enviados por DM.\n• 🎯 Quando alguém comprar um jogo da sua **wishlist da Steam**, você recebe uma DM!\n\n**📌 CANAIS IMPORTANTES**\n• 📢 **Notificações:** <#${CHANNEL_ID}>\n• 🏆 **Conquistas:** <#${ACHIEVEMENT_CHANNEL_ID}>\n• 📋 **Ranking:** <#${RANKING_CHANNEL_ID}>\n• 📜 **Regras:** <#${RULES_CHANNEL}>\n\n**✅ REGRAS SUJEITAS A MUDANÇAS** – A administração pode atualizar as regras a qualquer momento.\n**Divirta-se e bem-vindo à família!** 🚀'
-    ).setTimestamp().setFooter({ text: 'Steam Família - Regras e Comandos', iconURL: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png' });
+      '**Bem-vindo à Família Steam!** 🎮\n\n' +
+      '**📌 REGRAS GERAIS**\n' +
+      '1️⃣ **Respeito acima de tudo** – Nada de ofensas, discurso de ódio ou assédio.\n' +
+      '2️⃣ **Sem spam ou flood** – Evite enviar mensagens repetitivas ou conteúdo irrelevante.\n' +
+      '3️⃣ **Conteúdo apropriado** – Nada de NSFW, gore ou material impróprio.\n' +
+      '4️⃣ **Divulgação proibida** – Não divulgue outros servidores, produtos ou serviços sem permissão.\n' +
+      '5️⃣ **Use os canais certos** – Cada canal tem um propósito. Respeite as categorias.\n' +
+      '6️⃣ **Seja ativo e participe** – A família cresce com a interação de todos!\n\n' +
+      '**🤖 COMANDOS DISPONÍVEIS**\n' +
+      '`/tem [jogo]` – Verifica se um jogo está na biblioteca da família.\n' +
+      '`/ranking` – Mostra o ranking de jogos da família.\n' +
+      '`/quero [jogo]` – Adiciona um jogo à sua lista de desejos.\n' +
+      '`/quero-listar` – Lista os jogos da sua lista /quero.\n' +
+      '`/quero-remover [jogo]` – Remove um jogo da sua lista /quero.\n' +
+      '`/wishlist-link` – Registra o link da sua wishlist para receber notificações.\n' +
+      '`/dbstatus` – Status do banco de dados (apenas dono).\n' +
+      '`/conquista jogo:"nome"` – Mostra todas as conquistas de um jogo com vídeos guia.\n\n' +
+      '**🔔 NOTIFICAÇÕES**\n' +
+      '• 🆕 Novos jogos compatíveis são anunciados com `@everyone`.\n' +
+      '• 🏆 Conquistas são monitoradas e notificadas no canal de conquistas.\n' +
+      '• 📢 Lançamentos e promoções de jogos da sua lista `/quero` são enviados por DM.\n' +
+      '• 🎯 Quando alguém comprar um jogo da sua **wishlist da Steam**, você recebe uma DM!\n\n' +
+      '**📌 CANAIS IMPORTANTES**\n' +
+      `• 📢 **Notificações:** <#${CHANNEL_ID}>\n` +
+      `• 🏆 **Conquistas:** <#${ACHIEVEMENT_CHANNEL_ID}>\n` +
+      `• 📋 **Ranking:** <#${RANKING_CHANNEL_ID}>\n` +
+      `• 📜 **Regras:** <#${RULES_CHANNEL}>\n\n` +
+      '**✅ REGRAS SUJEITAS A MUDANÇAS** – A administração pode atualizar as regras a qualquer momento.\n' +
+      '**Divirta-se e bem-vindo à família!** 🚀'
+    )
+    .setTimestamp()
+    .setFooter({ text: 'Steam Família - Regras e Comandos', iconURL: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png' });
+
   await channel.send({ embeds: [embed] });
 }
 
@@ -835,13 +874,22 @@ client.once('clientReady', async () => {
       { name: 'quero-remover', description: 'Remove um jogo da sua lista /quero', options: [{ name: 'jogo', description: 'Nome do jogo para remover', type: 3, required: true }] },
       { name: 'wishlist-link', description: 'Registra o link da sua wishlist para receber notificações', options: [{ name: 'link', description: 'Link da sua wishlist', type: 3, required: true }] },
       { name: 'dbstatus', description: '[DONO] Status do banco de dados' },
-      { name: 'regras', description: 'Mostra as regras e comandos do servidor' },
       { name: 'conquista', description: 'Mostra todas as conquistas de um jogo com vídeos guia', options: [{ name: 'jogo', description: 'Nome do jogo para buscar conquistas', type: 3, required: true }] }
     ];
     const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
     console.log('✅ Comandos registrados.');
   } catch (err) { console.error('❌ Erro ao registrar comandos:', err); }
+
+  // Envia as regras apenas UMA VEZ
+  if (!db.regrasEnviadas) {
+    await enviarRegras();
+    db.regrasEnviadas = true;
+    await salvarDBNoCanal();
+    console.log('📜 Mensagem de regras enviada pela primeira vez.');
+  } else {
+    console.log('📜 Mensagem de regras já foi enviada anteriormente.');
+  }
 
   setInterval(checkAchievements, 30000);
   setInterval(checkNewGames, 300000);
@@ -854,7 +902,7 @@ client.once('clientReady', async () => {
 });
 
 // ============================================================
-// 14. COMANDOS SLASH
+// 14. COMANDOS SLASH (SEM /regras)
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -889,14 +937,6 @@ client.on('interactionCreate', async (interaction) => {
         { name: '🔄 Steam IDs', value: `${status.steamIds}`, inline: true }
       ).setTimestamp();
     await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
-    return;
-  }
-
-  // --- /regras ---
-  if (interaction.commandName === 'regras') {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    await enviarRegras();
-    await interaction.editReply('✅ Mensagem de regras enviada.');
     return;
   }
 
