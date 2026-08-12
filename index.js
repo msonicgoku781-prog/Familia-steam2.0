@@ -452,7 +452,7 @@ async function verificarCompatibilidadeFamilia(appId) {
 }
 
 // ============================================================
-// 8. RANKING E REGRAS (COM IMAGEM)
+// 8. RANKING E REGRAS (COM IMAGEM COMO ANEXO - TOPO)
 // ============================================================
 function gerarRankingEmbed() {
   const rankingArray = Object.values(db.ranking || {}).sort((a, b) => b.jogos - a.jogos);
@@ -478,13 +478,24 @@ async function enviarRanking() {
   await salvarDBNoCanal();
 }
 
-// 🔥 FUNÇÃO DE REGRAS COM IMAGEM
+// 🔥 FUNÇÃO DE REGRAS COM IMAGEM COMO ANEXO (TOPO)
 async function enviarRegras() {
   const channel = client.channels.cache.get(RULES_CHANNEL);
   if (!channel) return;
+
+  // 1. Baixar a imagem
+  let imageBuffer = null;
+  const imageUrl = 'https://cdn.discordapp.com/attachments/1015679704197509171/1537013046436962455/image.png?ex=6a7d7e72&is=6a7c2cf2&hm=f1c1c80c0f2f6aa0d18592b7bf86616a42e61ef0c758eeb2daafdd67b7343f8f&';
+  try {
+    const response = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 10000 });
+    imageBuffer = Buffer.from(response.data);
+  } catch (e) {
+    console.error('❌ Erro ao baixar imagem das regras:', e.message);
+  }
+
+  // 2. Construir o embed (sem setImage, para não duplicar)
   const embed = new EmbedBuilder()
     .setColor(0x00AE86)
-    .setImage('https://cdn.discordapp.com/attachments/1015679704197509171/1537013046436962455/image.png?ex=6a7d7e72&is=6a7c2cf2&hm=f1c1c80c0f2f6aa0d18592b7bf86616a42e61ef0c758eeb2daafdd67b7343f8f&')
     .setTitle('📜 REGRAS DO SERVIDOR')
     .setThumbnail('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png')
     .setDescription(
@@ -521,7 +532,15 @@ async function enviarRegras() {
     .setTimestamp()
     .setFooter({ text: 'Steam Família - Regras e Comandos', iconURL: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png' });
 
-  await channel.send({ embeds: [embed] });
+  // 3. Preparar os anexos (se a imagem foi baixada)
+  const files = [];
+  if (imageBuffer) {
+    const attachment = new AttachmentBuilder(imageBuffer, { name: 'regras_banner.png' });
+    files.push(attachment);
+  }
+
+  // 4. Enviar mensagem com imagem como anexo (topo) e embed (abaixo)
+  await channel.send({ files, embeds: [embed] });
 }
 
 // ============================================================
