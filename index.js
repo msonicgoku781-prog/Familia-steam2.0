@@ -89,7 +89,7 @@ function criarDBInicial() {
     rankingVersion: RANKING_VERSION,
     ultimaVerificacao: {},
     jogosAnunciados: [],
-    regrasEnviadas: false // mantido como fallback, mas não é mais a única condição
+    regrasEnviadas: false
   };
 }
 
@@ -560,14 +560,12 @@ async function verificarEEnviarRegras() {
 
     if (regrasMsg) {
       console.log('📜 Mensagem de regras já existe no canal. Nada a fazer.');
-      // Opcional: atualizar a flag no DB para evitar verificações futuras (mas não é necessário)
       return;
     }
 
     // Não encontrou, enviar a mensagem
     await enviarRegras();
     console.log('📜 Mensagem de regras enviada (não havia mensagem no canal).');
-    // Atualizar a flag no DB para evitar reenvios desnecessários (mas a verificação já garante)
     db.regrasEnviadas = true;
     await salvarDBNoCanal();
   } catch (error) {
@@ -1264,16 +1262,101 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================================
-// 15. COMANDOS DE TEXTO (DONO)
+// 15. COMANDOS DE TEXTO (DONO) E RESPOSTAS AUTOMÁTICAS EM DM
 // ============================================================
 client.on('messageCreate', async (message) => {
-  if (message.author.bot || message.author.id !== DONO_ID) return;
+  // Ignorar mensagens de bots
+  if (message.author.bot) return;
+
+  // --- RESPOSTAS AUTOMÁTICAS EM DM ---
+  // Se for uma mensagem direta (DM) e não for de um bot
+  if (!message.guild) {
+    const content = message.content.toLowerCase().trim();
+
+    // Padrões para identificar perguntas sobre jogos
+    const patterns = [
+      /^(a gente tem|tem o jogo|possui o|temos o|vc tem|você tem|alguém tem|tem o|tem) (.+)/i,
+      /^(a gente tem|tem o jogo|possui o|temos o|vc tem|você tem|alguém tem|tem o) (.+)\?/i,
+      /^(.+)\?$/i // se for uma pergunta simples como "sonic mania?" vamos capturar
+    ];
+
+    let jogoNome = null;
+    for (const pattern of patterns) {
+      const match = content.match(pattern);
+      if (match) {
+        // Se o pattern capturou dois grupos, o nome está no grupo 2; senão no grupo 1
+        jogoNome = match[2] || match[1];
+        break;
+      }
+    }
+
+    // Se não encontrou um nome de jogo, ignora
+    if (!jogoNome) return;
+
+    // Limpa o nome (remove espaços extras, pontuação)
+    jogoNome = jogoNome.trim();
+
+    // Buscar o jogo na Steam
+    let jogoInfo = await searchGameOnSteam(jogoNome);
+    if (!jogoInfo) {
+      // Tentar buscar por appid se for um número
+      const appidMatch = jogoNome.match(/^\d+$/);
+      if (appidMatch) {
+        const details = await getGameDetails(parseInt(appidMatch[0]));
+        if (details) {
+          jogoInfo = {
+            appid: parseInt(appidMatch[0]),
+            nome: details.name,
+            link: `https://store.steampowered.com/app/${appidMatch[0]}`,
+            capa: details.header_image || `https://cdn.cloudflare.steamstatic.com/steam/apps/${appidMatch[0]}/header.jpg`
+          };
+        }
+      }
+    }
+
+    if (!jogoInfo) {
+      await message.reply(`❌ Não encontrei o jogo **${jogoNome}** na Steam. Tente com o nome exato ou link da loja.`);
+      return;
+    }
+
+    const appid = jogoInfo.appid;
+    const nome = jogoInfo.nome;
+    const link = jogoInfo.link;
+
+    // Verificar compatibilidade
+    const compat = await verificarCompatibilidadeFamilia(appid);
+    if (!compat.compatível) {
+      await message.reply(`⚠️ **${nome}** não é compatível com Family Sharing.\nMotivo: ${compat.motivo}`);
+      return;
+    }
+
+    // Verificar se está na família
+    let donos = [];
+    for (const sid of STEAM_IDS_ARRAY) {
+      if ((db.historicoJogos[sid] || []).includes(appid)) {
+        const member = MEMBROS[sid];
+        if (member) donos.push(member.nome);
+      }
+    }
+
+    if (donos.length > 0) {
+      await message.reply(`✅ **${nome}** está na biblioteca da família!\n👥 Dono(s): ${donos.join(', ')}\n🔗 ${link}`);
+    } else {
+      await message.reply(`❌ **${nome}** NÃO está na biblioteca da família.`);
+    }
+    return;
+  }
+
+  // --- COMANDOS DE TEXTO DO DONO (apenas no servidor) ---
+  if (message.author.id !== DONO_ID) return;
+
   if (message.content === '!resetconquistas') {
     const qtd = Object.keys(db.jogosSemConquistas || {}).length;
     db.jogosSemConquistas = {};
     await salvarDBNoCanal();
     await message.reply(`✅ Resetado! ${qtd} jogos serão reverificados.`);
   }
+
   if (message.content === '!resetranking') {
     await message.reply('⚠️ Tem certeza? Digite `!confirmar` em 30s.');
     const collector = message.channel.createMessageCollector({ filter: m => m.author.id === DONO_ID && m.content === '!confirmar', max: 1, time: 30000 });
