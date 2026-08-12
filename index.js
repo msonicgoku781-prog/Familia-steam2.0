@@ -483,7 +483,6 @@ async function enviarRegras() {
   const channel = client.channels.cache.get(RULES_CHANNEL);
   if (!channel) return;
 
-  // 1. Baixar a imagem
   let imageBuffer = null;
   const imageUrl = 'https://cdn.discordapp.com/attachments/1015679704197509171/1537013046436962455/image.png?ex=6a7d7e72&is=6a7c2cf2&hm=f1c1c80c0f2f6aa0d18592b7bf86616a42e61ef0c758eeb2daafdd67b7343f8f&';
   try {
@@ -493,7 +492,6 @@ async function enviarRegras() {
     console.error('❌ Erro ao baixar imagem das regras:', e.message);
   }
 
-  // 2. Construir o embed (sem setImage, para não duplicar)
   const embed = new EmbedBuilder()
     .setColor(0x00AE86)
     .setTitle('📜 REGRAS DO SERVIDOR')
@@ -532,14 +530,12 @@ async function enviarRegras() {
     .setTimestamp()
     .setFooter({ text: 'Steam Família - Regras e Comandos', iconURL: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/1200px-Steam_icon_logo.svg.png' });
 
-  // 3. Preparar os anexos (se a imagem foi baixada)
   const files = [];
   if (imageBuffer) {
     const attachment = new AttachmentBuilder(imageBuffer, { name: 'regras_banner.png' });
     files.push(attachment);
   }
 
-  // 4. Enviar mensagem com imagem como anexo (topo) e embed (abaixo)
   await channel.send({ files, embeds: [embed] });
 }
 
@@ -549,9 +545,7 @@ async function verificarEEnviarRegras() {
   if (!channel) return;
 
   try {
-    // Buscar as últimas mensagens do canal
     const messages = await channel.messages.fetch({ limit: 50 });
-    // Procurar uma mensagem do bot que contenha um embed com o título "📜 REGRAS DO SERVIDOR"
     const regrasMsg = messages.find(m =>
       m.author.id === client.user.id &&
       m.embeds.length > 0 &&
@@ -563,7 +557,6 @@ async function verificarEEnviarRegras() {
       return;
     }
 
-    // Não encontrou, enviar a mensagem
     await enviarRegras();
     console.log('📜 Mensagem de regras enviada (não havia mensagem no canal).');
     db.regrasEnviadas = true;
@@ -930,7 +923,6 @@ client.once('clientReady', async () => {
     console.log('✅ Comandos registrados.');
   } catch (err) { console.error('❌ Erro ao registrar comandos:', err); }
 
-  // 🔥 VERIFICA SE A MENSAGEM DE REGRAS JÁ EXISTE, SENÃO ENVIA
   await verificarEEnviarRegras();
 
   setInterval(checkAchievements, 30000);
@@ -1269,80 +1261,86 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
   // --- RESPOSTAS AUTOMÁTICAS EM DM ---
-  // Se for uma mensagem direta (DM) e não for de um bot
   if (!message.guild) {
-    const content = message.content.toLowerCase().trim();
+    console.log(`📩 DM recebida de ${message.author.tag}: "${message.content}"`); // LOG DE DIAGNÓSTICO
 
-    // Padrões para identificar perguntas sobre jogos
-    const patterns = [
-      /^(a gente tem|tem o jogo|possui o|temos o|vc tem|você tem|alguém tem|tem o|tem) (.+)/i,
-      /^(a gente tem|tem o jogo|possui o|temos o|vc tem|você tem|alguém tem|tem o) (.+)\?/i,
-      /^(.+)\?$/i // se for uma pergunta simples como "sonic mania?" vamos capturar
-    ];
+    try {
+      const content = message.content.toLowerCase().trim();
 
-    let jogoNome = null;
-    for (const pattern of patterns) {
-      const match = content.match(pattern);
-      if (match) {
-        // Se o pattern capturou dois grupos, o nome está no grupo 2; senão no grupo 1
-        jogoNome = match[2] || match[1];
-        break;
-      }
-    }
+      // Lista de padrões para capturar perguntas sobre jogos
+      const patterns = [
+        /^(a gente tem|tem o jogo|possui o|temos o|vc tem|você tem|alguém tem|tem o|tem) (.+)/i,
+        /^(a gente tem|tem o jogo|possui o|temos o|vc tem|você tem|alguém tem|tem o) (.+)\?/i,
+        /^(.+)\?$/i // pergunta simples: "sonic mania?"
+      ];
 
-    // Se não encontrou um nome de jogo, ignora
-    if (!jogoNome) return;
-
-    // Limpa o nome (remove espaços extras, pontuação)
-    jogoNome = jogoNome.trim();
-
-    // Buscar o jogo na Steam
-    let jogoInfo = await searchGameOnSteam(jogoNome);
-    if (!jogoInfo) {
-      // Tentar buscar por appid se for um número
-      const appidMatch = jogoNome.match(/^\d+$/);
-      if (appidMatch) {
-        const details = await getGameDetails(parseInt(appidMatch[0]));
-        if (details) {
-          jogoInfo = {
-            appid: parseInt(appidMatch[0]),
-            nome: details.name,
-            link: `https://store.steampowered.com/app/${appidMatch[0]}`,
-            capa: details.header_image || `https://cdn.cloudflare.steamstatic.com/steam/apps/${appidMatch[0]}/header.jpg`
-          };
+      let jogoNome = null;
+      for (const pattern of patterns) {
+        const match = content.match(pattern);
+        if (match) {
+          jogoNome = match[2] || match[1];
+          break;
         }
       }
-    }
 
-    if (!jogoInfo) {
-      await message.reply(`❌ Não encontrei o jogo **${jogoNome}** na Steam. Tente com o nome exato ou link da loja.`);
-      return;
-    }
-
-    const appid = jogoInfo.appid;
-    const nome = jogoInfo.nome;
-    const link = jogoInfo.link;
-
-    // Verificar compatibilidade
-    const compat = await verificarCompatibilidadeFamilia(appid);
-    if (!compat.compatível) {
-      await message.reply(`⚠️ **${nome}** não é compatível com Family Sharing.\nMotivo: ${compat.motivo}`);
-      return;
-    }
-
-    // Verificar se está na família
-    let donos = [];
-    for (const sid of STEAM_IDS_ARRAY) {
-      if ((db.historicoJogos[sid] || []).includes(appid)) {
-        const member = MEMBROS[sid];
-        if (member) donos.push(member.nome);
+      if (!jogoNome) {
+        console.log(`ℹ️ Nenhum nome de jogo identificado em "${message.content}"`);
+        return; // não é uma pergunta sobre jogo
       }
-    }
 
-    if (donos.length > 0) {
-      await message.reply(`✅ **${nome}** está na biblioteca da família!\n👥 Dono(s): ${donos.join(', ')}\n🔗 ${link}`);
-    } else {
-      await message.reply(`❌ **${nome}** NÃO está na biblioteca da família.`);
+      jogoNome = jogoNome.trim();
+      console.log(`🔍 Buscando jogo: "${jogoNome}"`);
+
+      // Buscar o jogo na Steam
+      let jogoInfo = await searchGameOnSteam(jogoNome);
+      if (!jogoInfo) {
+        const appidMatch = jogoNome.match(/^\d+$/);
+        if (appidMatch) {
+          const details = await getGameDetails(parseInt(appidMatch[0]));
+          if (details) {
+            jogoInfo = {
+              appid: parseInt(appidMatch[0]),
+              nome: details.name,
+              link: `https://store.steampowered.com/app/${appidMatch[0]}`,
+              capa: details.header_image || `https://cdn.cloudflare.steamstatic.com/steam/apps/${appidMatch[0]}/header.jpg`
+            };
+          }
+        }
+      }
+
+      if (!jogoInfo) {
+        await message.reply(`❌ Não encontrei o jogo **${jogoNome}** na Steam. Tente com o nome exato ou link da loja.`);
+        return;
+      }
+
+      const appid = jogoInfo.appid;
+      const nome = jogoInfo.nome;
+      const link = jogoInfo.link;
+
+      // Verificar compatibilidade
+      const compat = await verificarCompatibilidadeFamilia(appid);
+      if (!compat.compatível) {
+        await message.reply(`⚠️ **${nome}** não é compatível com Family Sharing.\nMotivo: ${compat.motivo}`);
+        return;
+      }
+
+      // Verificar se está na família
+      let donos = [];
+      for (const sid of STEAM_IDS_ARRAY) {
+        if ((db.historicoJogos[sid] || []).includes(appid)) {
+          const member = MEMBROS[sid];
+          if (member) donos.push(member.nome);
+        }
+      }
+
+      if (donos.length > 0) {
+        await message.reply(`✅ **${nome}** está na biblioteca da família!\n👥 Dono(s): ${donos.join(', ')}\n🔗 ${link}`);
+      } else {
+        await message.reply(`❌ **${nome}** NÃO está na biblioteca da família.`);
+      }
+    } catch (error) {
+      console.error(`❌ Erro ao processar DM:`, error);
+      await message.reply('❌ Ocorreu um erro ao processar sua mensagem. Tente novamente mais tarde.');
     }
     return;
   }
