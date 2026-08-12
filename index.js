@@ -89,7 +89,7 @@ function criarDBInicial() {
     rankingVersion: RANKING_VERSION,
     ultimaVerificacao: {},
     jogosAnunciados: [],
-    regrasEnviadas: false
+    regrasEnviadas: false // mantido como fallback, mas não é mais a única condição
   };
 }
 
@@ -543,6 +543,38 @@ async function enviarRegras() {
   await channel.send({ files, embeds: [embed] });
 }
 
+// 🔥 VERIFICA SE JÁ EXISTE UMA MENSAGEM DE REGRAS NO CANAL
+async function verificarEEnviarRegras() {
+  const channel = client.channels.cache.get(RULES_CHANNEL);
+  if (!channel) return;
+
+  try {
+    // Buscar as últimas mensagens do canal
+    const messages = await channel.messages.fetch({ limit: 50 });
+    // Procurar uma mensagem do bot que contenha um embed com o título "📜 REGRAS DO SERVIDOR"
+    const regrasMsg = messages.find(m =>
+      m.author.id === client.user.id &&
+      m.embeds.length > 0 &&
+      m.embeds[0].title === '📜 REGRAS DO SERVIDOR'
+    );
+
+    if (regrasMsg) {
+      console.log('📜 Mensagem de regras já existe no canal. Nada a fazer.');
+      // Opcional: atualizar a flag no DB para evitar verificações futuras (mas não é necessário)
+      return;
+    }
+
+    // Não encontrou, enviar a mensagem
+    await enviarRegras();
+    console.log('📜 Mensagem de regras enviada (não havia mensagem no canal).');
+    // Atualizar a flag no DB para evitar reenvios desnecessários (mas a verificação já garante)
+    db.regrasEnviadas = true;
+    await salvarDBNoCanal();
+  } catch (error) {
+    console.error('❌ Erro ao verificar/enviar regras:', error);
+  }
+}
+
 // ============================================================
 // 9. VERIFICAÇÃO DE CONQUISTAS (COM LOCK PARA EVITAR DUPLICATAS)
 // ============================================================
@@ -900,15 +932,8 @@ client.once('clientReady', async () => {
     console.log('✅ Comandos registrados.');
   } catch (err) { console.error('❌ Erro ao registrar comandos:', err); }
 
-  // Envia as regras apenas UMA VEZ
-  if (!db.regrasEnviadas) {
-    await enviarRegras();
-    db.regrasEnviadas = true;
-    await salvarDBNoCanal();
-    console.log('📜 Mensagem de regras enviada pela primeira vez.');
-  } else {
-    console.log('📜 Mensagem de regras já foi enviada anteriormente.');
-  }
+  // 🔥 VERIFICA SE A MENSAGEM DE REGRAS JÁ EXISTE, SENÃO ENVIA
+  await verificarEEnviarRegras();
 
   setInterval(checkAchievements, 30000);
   setInterval(checkNewGames, 300000);
