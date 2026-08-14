@@ -419,7 +419,7 @@ async function traduzirTexto(texto) {
 }
 
 // ============================================================
-// 7. COMPATIBILIDADE
+// 7. COMPATIBILIDADE (mantida para outros comandos, mas não usada no /conquista)
 // ============================================================
 const JOGOS_INCOMPATIVEIS = {
   33930: "Arma 2: Operation Arrowhead", 107410: "Arma 3", 582660: "Black Desert", 1097150: "Fall Guys",
@@ -478,7 +478,6 @@ async function enviarRanking() {
   await salvarDBNoCanal();
 }
 
-// 🔥 FUNÇÃO DE REGRAS COM IMAGEM COMO ANEXO (TOPO)
 async function enviarRegras() {
   const channel = client.channels.cache.get(RULES_CHANNEL);
   if (!channel) return;
@@ -539,7 +538,6 @@ async function enviarRegras() {
   await channel.send({ files, embeds: [embed] });
 }
 
-// 🔥 VERIFICA SE JÁ EXISTE UMA MENSAGEM DE REGRAS NO CANAL
 async function verificarEEnviarRegras() {
   const channel = client.channels.cache.get(RULES_CHANNEL);
   if (!channel) return;
@@ -936,7 +934,7 @@ client.once('clientReady', async () => {
 });
 
 // ============================================================
-// 14. COMANDOS SLASH (SEM /regras)
+// 14. COMANDOS SLASH
 // ============================================================
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -1092,7 +1090,7 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  // --- /conquista ---
+  // --- /conquista (SEM VERIFICAÇÃO DE COMPATIBILIDADE) ---
   if (interaction.commandName === 'conquista') {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const nomeJogo = interaction.options.getString('jogo').trim();
@@ -1102,6 +1100,8 @@ client.on('interactionCreate', async (interaction) => {
     let userSteamId = null;
     for (const [sid, m] of Object.entries(MEMBROS)) if (m.discordId === interaction.user.id) { userSteamId = sid; break; }
     if (!userSteamId) { await interaction.editReply('❌ Você não é membro da família.'); return; }
+    
+    // Verificar se o jogo está na família (apenas para exibição, não bloqueia)
     let donos = [];
     for (const [sid, jogos] of Object.entries(db.historicoJogos || {})) if (jogos.includes(appid)) { const m = MEMBROS[sid]; if (m) donos.push(m); }
     if (!donos.length) {
@@ -1111,8 +1111,10 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
     if (!donos.length) { await interaction.editReply(`❌ Nenhum membro possui **${jogoInfo.nome}**.`); return; }
-    const compat = await verificarCompatibilidadeFamilia(appid);
-    if (!compat.compatível) { await interaction.editReply(`⚠️ **${jogoInfo.nome}** não é compatível.\nMotivo: ${compat.motivo}`); return; }
+
+    // 🔥 REMOVIDA A VERIFICAÇÃO DE COMPATIBILIDADE
+    // const compat = await verificarCompatibilidadeFamilia(appid);
+    // if (!compat.compatível) { ... return; }
 
     let schema;
     try { schema = await fetchSteam('https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/', { key: STEAM_KEY, appid, l: 'portuguese' }, 2); } catch (_) { await interaction.editReply('❌ Erro ao buscar conquistas.'); return; }
@@ -1257,21 +1259,19 @@ client.on('interactionCreate', async (interaction) => {
 // 15. COMANDOS DE TEXTO (DONO) E RESPOSTAS AUTOMÁTICAS EM DM
 // ============================================================
 client.on('messageCreate', async (message) => {
-  // Ignorar mensagens de bots
   if (message.author.bot) return;
 
   // --- RESPOSTAS AUTOMÁTICAS EM DM ---
   if (!message.guild) {
-    console.log(`📩 DM recebida de ${message.author.tag}: "${message.content}"`); // LOG DE DIAGNÓSTICO
+    console.log(`📩 DM recebida de ${message.author.tag}: "${message.content}"`);
 
     try {
       const content = message.content.toLowerCase().trim();
 
-      // Lista de padrões para capturar perguntas sobre jogos
       const patterns = [
         /^(a gente tem|tem o jogo|possui o|temos o|vc tem|você tem|alguém tem|tem o|tem) (.+)/i,
         /^(a gente tem|tem o jogo|possui o|temos o|vc tem|você tem|alguém tem|tem o) (.+)\?/i,
-        /^(.+)\?$/i // pergunta simples: "sonic mania?"
+        /^(.+)\?$/i
       ];
 
       let jogoNome = null;
@@ -1285,13 +1285,12 @@ client.on('messageCreate', async (message) => {
 
       if (!jogoNome) {
         console.log(`ℹ️ Nenhum nome de jogo identificado em "${message.content}"`);
-        return; // não é uma pergunta sobre jogo
+        return;
       }
 
       jogoNome = jogoNome.trim();
       console.log(`🔍 Buscando jogo: "${jogoNome}"`);
 
-      // Buscar o jogo na Steam
       let jogoInfo = await searchGameOnSteam(jogoNome);
       if (!jogoInfo) {
         const appidMatch = jogoNome.match(/^\d+$/);
@@ -1317,14 +1316,12 @@ client.on('messageCreate', async (message) => {
       const nome = jogoInfo.nome;
       const link = jogoInfo.link;
 
-      // Verificar compatibilidade
       const compat = await verificarCompatibilidadeFamilia(appid);
       if (!compat.compatível) {
         await message.reply(`⚠️ **${nome}** não é compatível com Family Sharing.\nMotivo: ${compat.motivo}`);
         return;
       }
 
-      // Verificar se está na família
       let donos = [];
       for (const sid of STEAM_IDS_ARRAY) {
         if ((db.historicoJogos[sid] || []).includes(appid)) {
@@ -1345,7 +1342,7 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // --- COMANDOS DE TEXTO DO DONO (apenas no servidor) ---
+  // --- COMANDOS DE TEXTO DO DONO ---
   if (message.author.id !== DONO_ID) return;
 
   if (message.content === '!resetconquistas') {
